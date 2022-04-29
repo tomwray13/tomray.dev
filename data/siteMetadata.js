@@ -1,13 +1,13 @@
 const siteMetadata = {
   title: 'Tom Ray - Learn Server Side GraphQL',
   author: 'Tom Ray',
-  headerTitle: 'TailwindBlog',
+  headerTitle: 'Tom Ray',
   description: 'A blog focused on the intersection of GCP and Javascript',
   language: 'en-us',
   theme: 'system', // system, dark or light
   siteUrl: 'https://tomray.dev',
   siteRepo: 'https://github.com/timlrx/tailwind-nextjs-starter-blog',
-  siteLogo: '/static/images/logo.png',
+  siteLogo: '/static/images/profile.jpg',
   image: '/static/images/avatar.png',
   socialBanner: '/static/images/twitter-card.png',
   github: 'https://github.com/tomwray13',

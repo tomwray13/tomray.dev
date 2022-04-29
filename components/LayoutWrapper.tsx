@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 import siteMetadata from '@/data/siteMetadata'
 import headerNavLinks from '@/data/headerNavLinks'
 import Logo from '@/data/logo.svg'
@@ -19,17 +20,13 @@ const LayoutWrapper = ({ children }: Props) => {
         <header className="flex items-center justify-between py-10">
           <div>
             <Link href="/" aria-label={siteMetadata.headerTitle}>
-              <div className="flex items-center justify-between">
-                <div className="mr-3">
-                  <Logo />
-                </div>
-                {typeof siteMetadata.headerTitle === 'string' ? (
-                  <div className="hidden h-6 text-2xl font-semibold sm:block">
-                    {siteMetadata.headerTitle}
-                  </div>
-                ) : (
-                  siteMetadata.headerTitle
-                )}
+              <div className="flex items-center py-4 pr-6 text-xl font-bold text-gray-700 hover:text-gray-900 dark:text-white">
+                <img
+                  src="static/images/profile.jpg"
+                  alt="Tom Ray"
+                  className="mr-2 h-8 w-8 rounded-full"
+                />
+                <span>Tom Ray</span>
               </div>
             </Link>
           </div>
