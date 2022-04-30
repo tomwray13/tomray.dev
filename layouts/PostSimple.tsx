@@ -20,17 +20,17 @@ export default function PostLayout({ frontMatter, next, prev, children }: Props)
   const { slug, date, title } = frontMatter
 
   return (
-    <SectionContainer>
+    <div>
       <BlogSEO url={`${siteMetadata.siteUrl}/${slug}`} {...frontMatter} />
       <ScrollTopAndComment />
-      <article>
+      <article className="mx-auto max-w-2xl">
         <div>
           <header>
-            <div className="space-y-1 border-b border-gray-200 pb-10 text-center dark:border-gray-700">
+            <div className="text-center">
               <dl>
                 <div>
                   <dt className="sr-only">Published on</dt>
-                  <dd className="text-base font-medium leading-6 text-gray-500 dark:text-gray-400">
+                  <dd className="mb-2 text-base font-medium leading-6 text-gray-500 dark:text-gray-400">
                     <time dateTime={date}>{formatDate(date)}</time>
                   </dd>
                 </div>
@@ -75,6 +75,6 @@ export default function PostLayout({ frontMatter, next, prev, children }: Props)
           </div>
         </div>
       </article>
-    </SectionContainer>
+    </div>
   )
 }
