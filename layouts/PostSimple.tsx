@@ -15,7 +15,7 @@ interface Props {
   prev?: { slug: string; title: string }
 }
 
-export default function PostLayout({ frontMatter, next, prev, children }: Props) {
+export default function PostLayout({ frontMatter, children }: Props) {
   const { slug, date, title } = frontMatter
 
   return (
