@@ -1,4 +1,3 @@
-import Link from '@/components/Link'
 import PageTitle from '@/components/PageTitle'
 import { BlogSEO } from '@/components/SEO'
 import siteMetadata from '@/data/siteMetadata'
@@ -16,7 +15,7 @@ interface Props {
 }
 
 export default function PostLayout({ frontMatter, children }: Props) {
-  const { slug, date, title } = frontMatter
+  const { slug, date, h1 } = frontMatter
 
   return (
     <div>
@@ -35,7 +34,7 @@ export default function PostLayout({ frontMatter, children }: Props) {
                 </div>
               </dl>
               <div>
-                <PageTitle>{title}</PageTitle>
+                <PageTitle>{h1}</PageTitle>
               </div>
             </div>
           </header>
@@ -44,7 +43,7 @@ export default function PostLayout({ frontMatter, children }: Props) {
             style={{ gridTemplateRows: 'auto 1fr' }}
           >
             <div className="divide-y divide-gray-200 dark:divide-gray-700 xl:col-span-3 xl:row-span-2 xl:pb-0">
-              <div className="prose max-w-none pt-10 pb-8 dark:prose-dark">{children}</div>
+              <div className="prose max-w-none pt-6 pb-8 dark:prose-dark md:pt-8">{children}</div>
             </div>
             <Comments frontMatter={frontMatter} />
           </div>

@@ -2,7 +2,7 @@ const siteMetadata = {
   title: 'Tom Ray - Learn Server Side GraphQL',
   author: 'Tom Ray',
   headerTitle: 'Tom Ray',
-  description: 'A blog focused on the intersection of GCP and Javascript',
+  description: 'A blog focused on NodeJs, Typescript and other backend tools and learnings',
   language: 'en-us',
   theme: 'system', // system, dark or light
   siteUrl: 'https://tomray.dev',

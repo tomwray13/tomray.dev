@@ -22,7 +22,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
         <ul className="max-w-2xl">
           {!posts.length && 'No posts found.'}
           {posts.slice(0, MAX_DISPLAY).map((frontMatter) => {
-            const { slug, date, title, summary } = frontMatter
+            const { slug, date, h1, summary } = frontMatter
             return (
               <li key={slug} className="py-8">
                 <article>
@@ -38,7 +38,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
                         <div>
                           <h2 className="text-2xl font-bold leading-8 tracking-tight">
                             <Link href={`/${slug}`} className="text-gray-900 dark:text-gray-100">
-                              {title}
+                              {h1}
                             </Link>
                           </h2>
                         </div>
@@ -50,7 +50,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
                         <Link
                           href={`/${slug}`}
                           className="group inline-flex h-9 items-center whitespace-nowrap rounded-full bg-slate-100 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-500 dark:bg-slate-700 dark:text-slate-100 dark:hover:bg-slate-600 dark:hover:text-white dark:focus:ring-slate-500"
-                          aria-label={`Read "${title}"`}
+                          aria-label={`Read "${h1}"`}
                         >
                           Read more &rarr;
                         </Link>

@@ -1,5 +1,6 @@
 export type PostFrontMatter = {
   title: string
+  h1: string
   date: string
   tags: string[]
   lastmod?: string
