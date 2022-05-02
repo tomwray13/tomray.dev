@@ -688,7 +688,7 @@ export const uploadToGoogleCloud = (createReadStream: FileUpload["createReadStre
 
 We're going to first use the `createReadStream` to give us access to the data in the file. The `pipe` method allows us to consume this data, and where the upload to Google Cloud Storage happens.
 
-The code `bucket.file(filename).createWriteStream({...})` is where the magic happens. We're importing `bucket` which we defined in our config file and then creating a writeable stream against a file in this bucket, passing in the `filename` (which defines the name of the file that's being uploaded).
+The code `createWriteStream({...})` is where the magic happens. We're importing `bucket` which we defined in our config file and then creating a writeable stream against a file in this bucket, passing in the `filename` (which defines the name of the file that's being uploaded).
 
 There are a couple of options passed into the writeable stream: `resumable: true, gzip: true`. Take a look [in the docs](https://googleapis.dev/nodejs/storage/latest/global.html#CreateWriteStreamOptions) for what these mean, as well as more options you can pass in.
 
