@@ -5,7 +5,7 @@ const siteMetadata = {
   description: 'A blog focused on NodeJs, Typescript and other backend tools and learnings',
   language: 'en-us',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://tomray.dev',
+  siteUrl: 'https://www.tomray.dev',
   siteRepo: 'https://github.com/tomwray13/tomray.dev',
   siteLogo: '/static/images/profile.jpg',
   image: '/static/images/avatar.png',
