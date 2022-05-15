@@ -1,0 +1,186 @@
+---
+title: How to deploy a NestJS project to Cloud Run
+h1: How to deploy a NestJS project to Cloud Run
+date: '2022-05-01'
+draft: true
+summary: Learn how to setup continuous deployments to Cloud Run using Github Actions and Cloud Build
+---
+
+
+<TOCInline toc={props.toc} asDisclosure />
+
+
+## Prerequisites
+
+- Your Nest project is a Github repository. This allows us to setup continuous deployment with Github Actions. The code for this tutorial is available [here]().
+- Docker installed on your machine
+- A project setup in Google Cloud Platform
+
+## Start a NestJS project
+
+Incase you don't have a NestJS project setup already, set one up with the Nest CLI:
+
+```shell
+$ npm i -g @nestjs/cli
+$ nest new project-name
+```
+
+Follow the prompts to setup your project.  
+
+### Configure a PORT environment variable
+
+Cloud Run will automatically inject the `PORT` number, so you'll need to edit the default bootstrap function which starts the server.
+
+Here's the default:
+
+```ts
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+}
+```
+
+You'll need to update this to the following:
+
+```ts
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(parseInt(process.env.PORT) || 3000);
+}
+```
+
+Now locally if you don't have a port variable set in your env file, it will default to 3000. 
+
+If, however, you try testing this locally by using a custom `PORT` environment variable and starting up your local server, you'll notice it doesn't work.
+
+That's because in order to use environment variables in NestJS you need to make the `.env` file accessible.
+
+To do that "the Nest way", install the required dependency:
+
+```shell
+npm i --save @nestjs/config
+```
+
+Then use the package in the root `AppModule`:
+
+```ts:app.module.ts
+...
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+  imports: [ConfigModule.forRoot()],
+  ...
+})
+export class AppModule {}
+```
+
+You can now set a custom `PORT` value in your env file and test it locally to check that it's working.
+
+Cloud Run will take care of the port for you on production, so you don't need to manually set a `PORT` env variable in your Cloud Run secrets.
+
+## Prepare the Docker image
+
+In order to deploy to Cloud Run, you need a container image. 
+
+A container image is an isolated package of software that includes everything you need to run the code. You can define container images by writing a `Dockerfile` which provides the instructions on how to build the image.
+
+Let's add the Dockerfile now:
+
+```shell
+touch Dockerfile
+```
+
+And then let's add the instructions to the Dockerfile. See the comments which explain each step:
+
+```Dockerfile:Dockerfile
+# Base image
+FROM node:18
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# A wildcard is used to ensure both package.json AND package-lock.json are copied
+COPY package*.json ./
+
+# Install app dependencies
+RUN npm install
+
+# Bundle app source
+COPY . .
+
+# Creates a "dist" folder with the production build
+RUN npm run build
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+```
+
+Similar to a `.gitignore` file, we can add a `.dockerignore` file which will prevent certain files from being included in the image build.
+
+```shell
+touch .dockerignore
+```
+
+Then exclude the following files from the image build:
+
+```:.dockerignore
+Dockerfile
+.dockerignore
+node_modules
+npm-debug.log
+```
+
+### Test the container locally
+
+Before pushing this up to Cloud Run, let's now do some testing locally to check if the Dockerfile behaves as we expect. 
+
+Let's first build the image using the command in your terminal at the root of your project (you can swap out `nest-cloud-run` with your project name). Don't forget the `.`!
+
+```shell
+docker build -t nest-cloud-run .
+```
+
+You can verify the image has been created by running `docker images` which will output a list of Docker images you have on your local machine:
+
+```shell
+docker images
+REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
+nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
+```
+
+Let's now start the container and run the image with this command (be sure to same image name used above):
+
+```shell
+docker run -p80:3000 nest-cloud-run
+```
+
+This should open up a containerized image of your app via a localhost port. If it doesn't, you might have something running locally on port `8080` or it might be another issue on your machine. You might need to do a bit of stack overflowing if you run into trouble here!
+
+- running `docker rm -f $(docker ps -aq)` to clear your current open containers
+- run `docker builder prune` to clear your image cache
+
+
+### Optimize Dockerfile for production
+
+One of the ways you're charged using Cloud Run is by the size of the image - the smaller the image size the better.
+
+Now that we've confirmed the image is working locally, let's try to reduce the size of the image.
+
+Running the command like we did above gives us our image size:
+
+```shell
+docker images
+REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
+nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
+```
+
+1.24GB is pretty big! Let's dive back into our `Dockerfile` and make some optimizations.
+
+- It's [recommended](https://hub.docker.com/_/node) to use the Alpine node images when trying to optimize for image size. Using `node:18-alpine` instead of `node:18` by itself reduces the image size from 1.24GB to 466MB!
+- Multistage builds: https://earthly.dev/blog/docker-multistage/
+
+
+## Manually deploying to Cloud Run
+
+## Automated deployments with Github Actions
