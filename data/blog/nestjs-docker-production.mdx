@@ -72,7 +72,7 @@ npm-debug.log
 
 ## Test the container locally
 
-Let's now do some testing locally to check if the Dockerfile behaves as we expect. 
+Let's now do some testing locally to check if the Dockerfile behaves as we expect.
 
 Let's first build the image using the command in your terminal at the root of your project (you can swap out `nest-cloud-run` with your project name). Don't forget the `.`!
 
@@ -100,10 +100,9 @@ I ran into a couple of issues on my machine when running the container, mainly d
 
 If you run into similar trouble, you can try running the command `docker rm -f $(docker ps -aq)` which stops and removes all running containers.
 
-
 ## Optimize Dockerfile for production
 
-Now that we've confirmed the image is working locally, let's try to reduce the size of the image. 
+Now that we've confirmed the image is working locally, let's try to reduce the size of the image.
 
 Deployment tools like Cloud Run factor in the size of the image when calculating how much to charge you, so it's a good idea to keep the image size as small as possible.
 
@@ -120,6 +119,14 @@ nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
 ### Use Alpine node images
 
 It's [recommended](https://hub.docker.com/_/node) to use the Alpine node images when trying to optimize for image size. Using `node:18-alpine` instead of `node:18` by itself reduces the image size from 1.24GB to 466MB!
+
+### Add a NODE_ENV environment variable
+
+Many libraries have optimizations built in when the `NODE_ENV` environment variable is set to `producton`, so we can set this environment variable in the Dockerfile build by adding the following line to our Dockerfile (see next section for where to place this in the Dockerfile):
+
+```Dockerfile
+ENV NODE_ENV production
+```
 
 ### Use multistage builds
 
@@ -150,6 +157,9 @@ RUN npm run build
 
 # Base image for production
 FROM node:18-alpine As production
+
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
 
 # Create app directory
 WORKDIR /usr/src/app
