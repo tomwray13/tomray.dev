@@ -1,0 +1,262 @@
+---
+title: Build a NestJS Docker Image For Production [2022]
+h1: How to build a NestJS Docker image for production
+date: '2022-05-15'
+lastmod: '2022-05-15'
+draft: false
+summary: Learn how to write a Dockerfile that creates a production optimized image using the NodeJS Alpine image and multistage builds.
+images: ['/static/images/nestjs-docker-production/nest-docker-production.png']
+---
+
+![How to build a NestJS Docker image for production](/static/images/nestjs-docker-production/nest-docker-production.png)
+
+When deploying my NestJS project, I found there wasn't loads online on how to write the Dockerfile to build the Docker image needed for containerized deployment.
+
+So I wrote this guide which takes you through step-by-step how to setup a Docker image for your NestJs project!
+
+Ready? Let's dive in.
+
+P.S. if you want to just copy and paste the production ready Dockerfile, just skip to this [section](#conclusion).
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## Writing the Dockerfile
+
+A container image is an isolated package of software that includes everything you need to run the code. You can define container images by writing a `Dockerfile` which provides the instructions on how to build the image.
+
+Let's add the Dockerfile now:
+
+```shell
+touch Dockerfile
+```
+
+And then let's add the instructions to the Dockerfile. See the comments which explain each step:
+
+```Dockerfile:Dockerfile
+# Base image
+FROM node:18
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# A wildcard is used to ensure both package.json AND package-lock.json are copied
+COPY package*.json ./
+
+# Install app dependencies
+RUN npm install
+
+# Bundle app source
+COPY . .
+
+# Creates a "dist" folder with the production build
+RUN npm run build
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+```
+
+Similar to a `.gitignore` file, we can add a `.dockerignore` file which will prevent certain files from being included in the image build.
+
+```shell
+touch .dockerignore
+```
+
+Then exclude the following files from the image build:
+
+```:.dockerignore
+Dockerfile
+.dockerignore
+node_modules
+npm-debug.log
+```
+
+## Test the container locally
+
+Let's now do some testing locally to check if the Dockerfile behaves as we expect. 
+
+Let's first build the image using the command in your terminal at the root of your project (you can swap out `nest-cloud-run` with your project name). Don't forget the `.`!
+
+```shell
+docker build -t nest-cloud-run .
+```
+
+You can verify the image has been created by running `docker images` which will output a list of Docker images you have on your local machine:
+
+```shell
+docker images
+REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
+nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
+```
+
+Let's now start the container and run the image with this command (be sure to same image name used above):
+
+```shell
+docker run -p80:3000 nest-cloud-run
+```
+
+You can now access the NestJS app by visiting `https://localhost` in your browser (just `https://localhost` without any port numbers).
+
+I ran into a couple of issues on my machine when running the container, mainly due to with conflicts with ports from other containers I had running.
+
+If you run into similar trouble, you can try running the command `docker rm -f $(docker ps -aq)` which stops and removes all running containers.
+
+
+## Optimize Dockerfile for production
+
+Now that we've confirmed the image is working locally, let's try to reduce the size of the image. 
+
+Deployment tools like Cloud Run factor in the size of the image when calculating how much to charge you, so it's a good idea to keep the image size as small as possible.
+
+Running the command `docker images` gives us our image size:
+
+```shell
+docker images
+REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
+nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
+```
+
+1.24GB is pretty big! Let's dive back into our `Dockerfile` and make some optimizations.
+
+### Use Alpine node images
+
+It's [recommended](https://hub.docker.com/_/node) to use the Alpine node images when trying to optimize for image size. Using `node:18-alpine` instead of `node:18` by itself reduces the image size from 1.24GB to 466MB!
+
+### Use multistage builds
+
+In your Dockerfile you can define [multistage builds](https://earthly.dev/blog/docker-multistage/) which is a way to sequentially build the most optimized image by building multiple images.
+
+In practice, here's how we can use multistage builds in our Dockerfile:
+
+```Dockerfile:Dockerfile
+# Base image
+FROM node:18-alpine As development
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY package*.json ./
+
+# Install app dependencies
+RUN npm install
+
+# Bundle app source
+COPY . .
+
+# Creates a "dist" folder with the production build
+RUN npm run build
+
+# Base image for production
+FROM node:18-alpine As production
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY package*.json ./
+
+# Install production dependencies.
+# If you have a package-lock.json, speedier builds with 'npm ci', otherwise use 'npm install --only=production'
+RUN npm ci --only=production
+
+# Bundle app source
+COPY . .
+
+# Copy the bundled code
+COPY --from=development /usr/src/app/dist ./dist
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+
+```
+
+Once you've updated your `Dockerfile`, you'll need to re-run the commands to build your image:
+
+```shell
+docker build -t nest-cloud-run .
+```
+
+And then the command to spin up your container:
+
+```shell
+docker run -p80:3000 nest-cloud-run
+```
+
+If you run `docker images` again to check our image size, you'll see it's now signifantly smaller:
+
+```shell
+docker images
+REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
+nest-cloud-run               latest    004f7f222139   31 seconds ago   189MB
+```
+
+## Troubleshooting
+
+You might come into the following errors:
+
+### Error: Cannot find module 'webpack'
+
+It's likely you're using the wrong node version in your base image if you're getting errors like the following:
+
+- `Error: Cannot find module 'webpack'`
+- `ERROR [development 6/6] RUN npm run build`
+- `npm ERR! nest-cloud-run@0.0.1 build: nest build`
+
+Instead of using `FROM node:14-alpine`, use `FROM node:18-alpine` to solve this issue.
+
+## Conclusion
+
+In summary, here is our production optimized Docker image for a NestJS project:
+
+```Dockerfile:Dockerfile
+# Base image
+FROM node:18-alpine As development
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY package*.json ./
+
+# Install app dependencies
+RUN npm install
+
+# Bundle app source
+COPY . .
+
+# Creates a "dist" folder with the production build
+RUN npm run build
+
+# Base image for production
+FROM node:18-alpine As production
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY package*.json ./
+
+# Install production dependencies.
+# If you have a package-lock.json, speedier builds with 'npm ci', otherwise use 'npm install --only=production'
+RUN npm ci --only=production
+
+# Bundle app source
+COPY . .
+
+# Copy the bundled code
+COPY --from=development /usr/src/app/dist ./dist
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+
+```
+
+Do you have any further optimizations you can make to the above image? Drop them in the comments below!
