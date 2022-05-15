@@ -246,6 +246,9 @@ RUN npm run build
 # Base image for production
 FROM node:18-alpine As production
 
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
+
 # Create app directory
 WORKDIR /usr/src/app
 
@@ -266,7 +269,6 @@ COPY --from=development /usr/src/app/dist ./dist
 
 # Start the server using the production build
 CMD [ "node", "dist/main.js" ]
-
 ```
 
 Do you have any further optimizations you can make to the above image? Drop them in the comments below!
