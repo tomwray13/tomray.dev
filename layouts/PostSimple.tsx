@@ -28,8 +28,8 @@ export default function PostLayout({ frontMatter, children }: Props) {
               <dl>
                 <div>
                   <dt className="sr-only">Published on</dt>
-                  <dd className="mb-2 text-base font-medium leading-6 text-gray-500 dark:text-gray-400">
-                    <time dateTime={date}>{formatDate(date)}</time>
+                  <dd className="mb-2 text-sm font-medium leading-6 text-gray-500 dark:text-gray-400">
+                    Last updated: <time dateTime={date}>{formatDate(date)}</time>
                   </dd>
                 </div>
               </dl>
