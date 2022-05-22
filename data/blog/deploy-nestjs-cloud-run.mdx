@@ -1,20 +1,28 @@
 ---
-title: How to deploy a NestJS project to Cloud Run
-h1: How to deploy a NestJS project to Cloud Run
-date: '2022-05-01'
+title: Deploying a NestJS app to Cloud Run with Github Actions
+h1: Deploying a NestJS app to Cloud Run with Github Actions
+date: '2022-05-29'
+lastmod: '2022-05-29'
 draft: true
 summary: Learn how to setup continuous deployments to Cloud Run using Github Actions and Cloud Build
 ---
 
+This is a quick start guide to deploying a NestJs project to Cloud Run.
+
+We'll first setup the deployment manually, then move to an automated CD (continuous deployment) workflow using Github Actions.
+
+Ready? Let's dive in 🤿.
+
+Here's the [Github repository](https://github.com/tomwray13/nest-cloud-run) if you'd like to review the code.
 
 <TOCInline toc={props.toc} asDisclosure />
 
-
 ## Prerequisites
 
-- Your Nest project is a Github repository. This allows us to setup continuous deployment with Github Actions. The code for this tutorial is available [here]().
+- Your Nest project is a Github repository. This allows us to setup continuous deployment with Github Actions.
 - Docker installed on your machine
 - A project setup in Google Cloud Platform
+- Have the [gcloud CLI](https://cloud.google.com/sdk/docs/install) installed on your machine
 
 ## Start a NestJS project
 
@@ -25,7 +33,7 @@ $ npm i -g @nestjs/cli
 $ nest new project-name
 ```
 
-Follow the prompts to setup your project.  
+Follow the prompts to setup your project.
 
 ### Configure a PORT environment variable
 
@@ -35,22 +43,21 @@ Here's the default:
 
 ```ts
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  await app.listen(3000);
+  const app = await NestFactory.create(AppModule)
+  await app.listen(3000)
 }
 ```
 
 You'll need to update this to the following:
 
 ```ts
-
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  await app.listen(parseInt(process.env.PORT) || 3000);
+  const app = await NestFactory.create(AppModule)
+  await app.listen(parseInt(process.env.PORT) || 3000)
 }
 ```
 
-Now locally if you don't have a port variable set in your env file, it will default to 3000. 
+Now locally if you don't have a port variable set in your env file, it will default to 3000.
 
 If, however, you try testing this locally by using a custom `PORT` environment variable and starting up your local server, you'll notice it doesn't work.
 
@@ -81,26 +88,23 @@ Cloud Run will take care of the port for you on production, so you don't need to
 
 ## Prepare the Docker image
 
-In order to deploy to Cloud Run, you need a container image. 
+In order to deploy to Cloud Run, you need a container image.
 
 A container image is an isolated package of software that includes everything you need to run the code. You can define container images by writing a `Dockerfile` which provides the instructions on how to build the image.
 
-Let's add the Dockerfile now:
-
-```shell
-touch Dockerfile
-```
-
-And then let's add the instructions to the Dockerfile. See the comments which explain each step:
+This tutorial won't go into the details of [how to write a production optimized Dockerfile for NestJS apps](/nestjs-docker-production), however, here's a Dockerfile set up to achieve just that:
 
 ```Dockerfile:Dockerfile
 # Base image
-FROM node:18
+# Base image
+FROM node:18-alpine As development
 
 # Create app directory
 WORKDIR /usr/src/app
 
-# A wildcard is used to ensure both package.json AND package-lock.json are copied
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
 COPY package*.json ./
 
 # Install app dependencies
@@ -111,6 +115,30 @@ COPY . .
 
 # Creates a "dist" folder with the production build
 RUN npm run build
+
+# Base image for production
+FROM node:18-alpine As production
+
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY package*.json ./
+
+# Install production dependencies.
+# If you have a package-lock.json, speedier builds with 'npm ci', otherwise use 'npm install --only=production'
+RUN npm ci --only=production
+
+# Bundle app source
+COPY . .
+
+# Copy the bundled code
+COPY --from=development /usr/src/app/dist ./dist
 
 # Start the server using the production build
 CMD [ "node", "dist/main.js" ]
@@ -133,7 +161,7 @@ npm-debug.log
 
 ### Test the container locally
 
-Before pushing this up to Cloud Run, let's now do some testing locally to check if the Dockerfile behaves as we expect. 
+Before pushing this up to Cloud Run, let's now do some testing locally to check if the Dockerfile behaves as we expect.
 
 Let's first build the image using the command in your terminal at the root of your project (you can swap out `nest-cloud-run` with your project name). Don't forget the `.`!
 
@@ -146,7 +174,7 @@ You can verify the image has been created by running `docker images` which will 
 ```shell
 docker images
 REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
-nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
+nest-cloud-run               latest    004f7f222139   31 seconds ago   114MB
 ```
 
 Let's now start the container and run the image with this command (be sure to same image name used above):
@@ -155,32 +183,329 @@ Let's now start the container and run the image with this command (be sure to sa
 docker run -p80:3000 nest-cloud-run
 ```
 
-This should open up a containerized image of your app via a localhost port. If it doesn't, you might have something running locally on port `8080` or it might be another issue on your machine. You might need to do a bit of stack overflowing if you run into trouble here!
-
-- running `docker rm -f $(docker ps -aq)` to clear your current open containers
-- run `docker builder prune` to clear your image cache
-
-
-### Optimize Dockerfile for production
-
-One of the ways you're charged using Cloud Run is by the size of the image - the smaller the image size the better.
-
-Now that we've confirmed the image is working locally, let's try to reduce the size of the image.
-
-Running the command like we did above gives us our image size:
-
-```shell
-docker images
-REPOSITORY                   TAG       IMAGE ID       CREATED          SIZE
-nest-cloud-run               latest    004f7f222139   31 seconds ago   1.24GB
-```
-
-1.24GB is pretty big! Let's dive back into our `Dockerfile` and make some optimizations.
-
-- It's [recommended](https://hub.docker.com/_/node) to use the Alpine node images when trying to optimize for image size. Using `node:18-alpine` instead of `node:18` by itself reduces the image size from 1.24GB to 466MB!
-- Multistage builds: https://earthly.dev/blog/docker-multistage/
-
+You can now access the NestJS app by visiting `http://localhost` in your browser (just `http://localhost` without any port numbers).
 
 ## Manually deploying to Cloud Run
 
+Before setting up automated deployments when changes are pushed to your Git repo, let's first do a manual deployment using the gcloud CLI.
+
+Doing a manual deployment via the gcloud CLI will setup the Cloud Run service for us rather than needing to manually create inside the GCP console.
+
+### Check your gcloud CLI project is set
+
+You might have multiple accounts and projects in your GCP account, so you'll want to make sure you create the Cloud Run service in the right one.
+
+First you can check the current active project the gcloud CLI is using by running:
+
+```shell
+gcloud config get-value project
+```
+
+If that command returns the ID of the project you want to create the Cloud Run service in, great! Skip down to the next section. Otherwise, follow the next steps:
+
+Make sure you're authenticated into the correct account:
+
+```shell
+gcloud auth list
+* account 1
+  account 2
+```
+
+You need to be authenticated in the account where your project lives, so change account if necessary with:
+
+```shell
+gcloud config set account `ACCOUNT`
+```
+
+List out the projects in the account your authenticated in:
+
+```shell
+gcloud projects list
+```
+
+And finally, switch to the intended project:
+
+```shell
+gcloud config set project `PROJECT ID`
+```
+
+### Use gcloud run deploy
+
+We're now going to use the `gcloud run deploy` command which feels a bit like magic - so let's breakdown what happens behind the scenes:
+
+- Uses Cloud Build to build the container image (using the `Dockerfile` as instructions)
+- The container is stored in Artifact Registry
+- Creates a service in Cloud Run against the container image
+
+For this step, you can either follow the [Cloud Run docs](https://cloud.google.com/run/docs/quickstarts/build-and-deploy/deploy-nodejs-service) (recommended) or follow the steps below.
+
+Run the following command in your terminal at the root of your project:
+
+```shell
+gcloud run deploy
+```
+
+If prompted to enable the API, Reply `y` to enable.
+
+1. When you are prompted for the source code location, press Enter to deploy the current folder.
+2. When you are prompted for the service name, press Enter to accept the default name.
+3. If you are prompted to enable the Artifact Registry API, respond by pressing y.
+4. When you are prompted for region: select the region of your choice, for example us-central1.
+5. You will be prompted to allow unauthenticated invocations: respond y .
+
+Then wait a few moments until the deployment is complete. On success, the command line displays the service URL.
+
+Visit your deployed service by opening the service URL in a web browser.
+
 ## Automated deployments with Github Actions
+
+Okay, let's setup some automation with Github Actions!
+
+### Enable Google Cloud APIs
+
+Before proceeding, make sure the following are enabled inside your Google Cloud Platform account:
+
+- [Cloud Run API](https://console.cloud.google.com/marketplace/product/google/run.googleapis.com)
+- [Cloud Build API](https://console.cloud.google.com/marketplace/product/google/cloudbuild.googleapis.com)
+- [Artifact Registry API](https://console.cloud.google.com/marketplace/product/google/artifactregistry.googleapis.com)
+
+Just click the above 3 links and ensure you've pressed the 'Enable' button on each.
+
+### Create a service account with permissions
+
+We're going to do the next couple of steps inside the GCP console rather than via the gcloud CLI - I'm a more visual dude so that's what I prefer!
+
+As we're setting up the deployments to Cloud Run in a 3rd party environment (Github), we need a way of giving access to Github to run the deployment.
+
+That's where service accounts come in.
+
+A service account allows 'non-human' users to interact with Google APIs - exactly what we need to work with Github.
+
+So if you first go to create a service account:
+
+![Create service account](/static/images/deploy-nestjs-cloud-run/create-service-account.png)
+
+And then add the service account details (something like 'Github Action' makes sense):
+
+![Service account name](/static/images/deploy-nestjs-cloud-run/service-account-name.png)
+
+Then in the next step. grant the following roles:
+
+- Cloud Run Admin
+- Cloud Run Service Agent
+- Cloud Build Editor
+- Storage Admin
+- Artifact Registry Administrator
+
+![Service account permissions](/static/images/deploy-nestjs-cloud-run/service-account-permissions.png)
+
+You can skip the final step where it prompts you to grant users access to this service account.
+
+### Configure Workflow Identity Federation
+
+The Github Action we're going to setup in the next step has essentially 2 steps:
+
+1. Authenticate the service account to make deployments to your Cloud Run project
+2. Deploy your application to Cloud Run (this step takes care of building the image, too)
+
+For the authentication step, you can either use Workflow Identity or use a credentials JSON file. Google recommends Workflow Identity so that's what we're going to setup now.
+
+Head to Workload Identity Federation and press the 'Create Pool' button:
+
+![Create workload identity pool](/static/images/deploy-nestjs-cloud-run/create-workload-pool.png)
+
+Give your identity pool a name like 'Github Auth':
+
+![Workload identity name](/static/images/deploy-nestjs-cloud-run/workload-pool-name.png)
+
+In the next step for adding a provider to pool, set the following:
+
+- Choose OpenID Connect (OIDC) in the 'Select a provider' dropdown
+- Define a provider name (e.g. Github Action)
+- Define a provider ID (e.g. github-action). This might be set automatically for you.
+- For the issuer url, use `https://token.actions.githubusercontent.com`
+- Leave the audiences set to 'Default audience'
+
+![Add workload identity provider](/static/images/deploy-nestjs-cloud-run/workload-provider.png)
+
+In the next step, add the following 3 provider attributes:
+
+- google-subject = `assertion.sub`
+- attribute.actor = `assertion.actor`
+- attribute.repository = `assertion.repository`
+
+![Set workload identity provider attributes](/static/images/deploy-nestjs-cloud-run/workload-provider-attributes.png)
+
+Then hit the save button.
+
+Copy the IAM principal value of the pool to your clipboard. We'll need this in an upcoming step.
+
+![IAM principal value](/static/images/deploy-nestjs-cloud-run/workload-pool-id.png)
+
+The final step is to connect the service account we created in the previous step to the Pool we just created.
+
+To do that, head to the Service Accounts page and go into the service account you created in the previous step:
+
+![List of GCP service accounts](/static/images/deploy-nestjs-cloud-run/service-account.png)
+
+From there, go into the Permissions tab and press the 'Grant Access' button to add a new principal with a role specific to our pool.
+
+![Grant new IAM principal](/static/images/deploy-nestjs-cloud-run/service-account-add-permissions.png)
+
+For the 'New principal' field, you'll want to append 2 strings together:
+
+- The IAM principal value you copied to your clipboard above
+- And `/attribute.repository/${REPO}` (You'll want to replace `${REPO}` with your github repo using format `username/repo`. For example, mine would be `tomwray13/nest-cloud-run`)
+
+Together, mine looks like this:
+
+`principalSet://iam.googleapis.com/projects/84230984908/locations/global/workloadIdentityPools/github-auth/attribute.repository/tomwray13/nest-cloud-run`
+
+Use this string in the 'New principal' field and set the role as Workload Identity User:
+
+![Add new IAM principal](/static/images/deploy-nestjs-cloud-run/service-account-add-principal.png)
+
+And that's it! Now to building our Github Action.
+
+### Add Github Action
+
+Let's first go to the 'Actions' tab in your Github repo and search for `cloud run`. Press the configure button on the 'Deploy to Cloud Run from source' workflow:
+
+![Github Action search](/static/images/deploy-nestjs-cloud-run/github-actions-cloud-run.png)
+
+This is the official workflow written by the GCP team and what we'll be using to build our Github Action.
+
+There are some helpful comments in the workflow which explains the setup required. We've already covered this setup in the previous steps, but it's worth reading to ensure everything is setup correctly.
+
+If we remove the setup related comments from the workflow, we'll have this:
+
+```yml
+name: Deploy to Cloud Run from Source
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: YOUR_PROJECT_ID # TODO: update Google Cloud project id
+  SERVICE: YOUR_SERVICE_NAME # TODO: update Cloud Run service name
+  REGION: YOUR_SERVICE_REGION # TODO: update Cloud Run service region
+
+jobs:
+  deploy:
+    # Add 'id-token' with the intended permissions for workload identity federation
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Google Auth
+        id: auth
+        uses: 'google-github-actions/auth@v0'
+        with:
+          workload_identity_provider: '${{ secrets.WIF_PROVIDER }}' # e.g. - projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider
+          service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}' # e.g. - my-service-account@my-project.iam.gserviceaccount.com
+
+      - name: Deploy to Cloud Run
+        id: deploy
+        uses: google-github-actions/deploy-cloudrun@v0
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          # NOTE: If required, update to the appropriate source folder
+          source: ./
+
+      # If required, use the Cloud Run url output in later steps
+      - name: Show Output
+        run: echo ${{ steps.deploy.outputs.url }}
+```
+
+So we now just need to take care of the environment variables and secrets.
+
+For the environment variables:
+
+```yml
+
+---
+env:
+  PROJECT_ID: YOUR_PROJECT_ID # TODO: update Google Cloud project id
+  SERVICE: YOUR_SERVICE_NAME # TODO: update Cloud Run service name
+  REGION: YOUR_SERVICE_REGION # TODO: update Cloud Run service region
+
+```
+
+Update the `YOUR_PROJECT_ID` to your GCP project ID.
+
+For the `YOUR_SERVICE_NAME` and `YOUR_SERVICE_REGION`, these were defined earlier on in the step where we manually deployed using the gcloud CLI.
+
+You can easily find these by going to Cloud Run in the GCP console and this info will be available in the table.
+
+For example:
+
+![Google Cloud Run credentials](/static/images/deploy-nestjs-cloud-run/cloud-run-creds.png)
+
+So I'll update my env variables to:
+
+```yml
+
+---
+env:
+  PROJECT_ID: direct-album-348214
+  SERVICE: nest-cloud-run
+  REGION: europe-west1
+```
+
+And the final step is to add the secrets required in the authentication step:
+
+```yml
+
+---
+- name: Google Auth
+  id: auth
+  uses: 'google-github-actions/auth@v0'
+  with:
+    workload_identity_provider: '${{ secrets.WIF_PROVIDER }}' # e.g. - projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider
+    service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}' # e.g. - my-service-account@my-project.iam.gserviceaccount.com
+
+```
+
+To find the `WIF_PROVIDER` value, head to Workload Identity Federation in the console and click into the pool you setup earlier:
+
+![Workload Identity Federation pool](/static/images/deploy-nestjs-cloud-run/workload-pool.png)
+
+On the right hand side in the Providers tab, press the edit icon:
+
+![Edit Workload identity federation provider](/static/images/deploy-nestjs-cloud-run/workload-provider-edit.png)
+
+Copy the URL shown under Default audience. You just need the string starting from `projects/` so you can remove `https://iam.googleapis.com/`.
+
+![Copy default audience URL](/static/images/deploy-nestjs-cloud-run/workload-provider-value.png)
+
+To add a Github secret, navigate to the Settings tab in your Github repo and go into Secrets in the left nav:
+
+![Github secrets](/static/images/deploy-nestjs-cloud-run/github-secrets.png)
+
+Then press the 'New repository secret' button and add the `WIF_PROVIDER` value.
+
+The `WIF_SERVICE_ACCOUNT` is the email address of the service account you created in a previous step above.
+
+To find this, head to Service Accounts in the GCP console and you'll see a list of your service accounts. Grab the email address of the service account you created:
+
+![GCP service accounts](/static/images/deploy-nestjs-cloud-run/service-account.png)
+
+Add this email address as another Github secret for `WIF_SERVICE_ACCOUNT`.
+
+In Github, you now just need to commit the Github Acton you've created:
+
+![Commit to Github](/static/images/deploy-nestjs-cloud-run/gitub-action-commit.png)
+
+You'll now see the workflow running and deploying to Cloud Run!
+
+Every time you now make a commit to the `main` branch of your project, it will roll out a new deployment to Cloud Run.
+
+And that's it! Your NestJS app is now deployed to Cloud Run and will continuously deploy with commits to your `main` branch.
