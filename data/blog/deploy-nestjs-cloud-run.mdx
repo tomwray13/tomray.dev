@@ -3,11 +3,12 @@ title: Deploying a NestJS app to Cloud Run with Github Actions
 h1: Deploying a NestJS app to Cloud Run with Github Actions
 date: '2022-05-29'
 lastmod: '2022-05-29'
-draft: true
-summary: Learn how to setup continuous deployments to Cloud Run using Github Actions and Cloud Build
+draft: false
+summary: Learn how to deploy a NestJs app with continuous deployments to Cloud Run using Github Actions and Cloud Build
+images: ['/static/images/deploy-nestjs-cloud-run/nest-cloud-run.png']
 ---
 
-This is a quick start guide to deploying a NestJs project to Cloud Run.
+This is a quick start guide to deploying a NestJs project to [Cloud Run](https://cloud.google.com/run).
 
 We'll first setup the deployment manually, then move to an automated CD (continuous deployment) workflow using Github Actions.
 
@@ -250,7 +251,7 @@ If prompted to enable the API, Reply `y` to enable.
 1. When you are prompted for the source code location, press Enter to deploy the current folder.
 2. When you are prompted for the service name, press Enter to accept the default name.
 3. If you are prompted to enable the Artifact Registry API, respond by pressing y.
-4. When you are prompted for region: select the region of your choice, for example us-central1.
+4. When you are prompted for region: select the region of your choice, for example, us-central1.
 5. You will be prompted to allow unauthenticated invocations: respond y .
 
 Then wait a few moments until the deployment is complete. On success, the command line displays the service URL.
@@ -323,8 +324,8 @@ In the next step for adding a provider to pool, set the following:
 - Choose OpenID Connect (OIDC) in the 'Select a provider' dropdown
 - Define a provider name (e.g. Github Action)
 - Define a provider ID (e.g. github-action). This might be set automatically for you.
-- For the issuer url, use `https://token.actions.githubusercontent.com`
-- Leave the audiences set to 'Default audience'
+- For the issuer URL, use `https://token.actions.githubusercontent.com`
+- Leave the audience set to 'Default audience'
 
 ![Add workload identity provider](/static/images/deploy-nestjs-cloud-run/workload-provider.png)
 
@@ -348,14 +349,14 @@ To do that, head to the Service Accounts page and go into the service account yo
 
 ![List of GCP service accounts](/static/images/deploy-nestjs-cloud-run/service-account.png)
 
-From there, go into the Permissions tab and press the 'Grant Access' button to add a new principal with a role specific to our pool.
+From there, go into the Permissions tab and press the 'Grant Access' button to add a new principal with a role-specific to our pool.
 
 ![Grant new IAM principal](/static/images/deploy-nestjs-cloud-run/service-account-add-permissions.png)
 
 For the 'New principal' field, you'll want to append 2 strings together:
 
 - The IAM principal value you copied to your clipboard above
-- And `/attribute.repository/${REPO}` (You'll want to replace `${REPO}` with your github repo using format `username/repo`. For example, mine would be `tomwray13/nest-cloud-run`)
+- And `/attribute.repository/${REPO}` (You'll want to replace `${REPO}` with your Github repo using the format `username/repo`. For example, mine would be `tomwray13/nest-cloud-run`)
 
 Together, mine looks like this:
 
@@ -375,7 +376,7 @@ Let's first go to the 'Actions' tab in your Github repo and search for `cloud ru
 
 This is the official workflow written by the GCP team and what we'll be using to build our Github Action.
 
-There are some helpful comments in the workflow which explains the setup required. We've already covered this setup in the previous steps, but it's worth reading to ensure everything is setup correctly.
+There are some helpful comments in the workflow which explain the setup required. We've already covered this setup in the previous steps, but it's worth reading to ensure everything is setup correctly.
 
 If we remove the setup related comments from the workflow, we'll have this:
 
@@ -430,13 +431,11 @@ So we now just need to take care of the environment variables and secrets.
 For the environment variables:
 
 ```yml
-
 ---
 env:
   PROJECT_ID: YOUR_PROJECT_ID # TODO: update Google Cloud project id
   SERVICE: YOUR_SERVICE_NAME # TODO: update Cloud Run service name
   REGION: YOUR_SERVICE_REGION # TODO: update Cloud Run service region
-
 ```
 
 Update the `YOUR_PROJECT_ID` to your GCP project ID.
@@ -452,7 +451,6 @@ For example:
 So I'll update my env variables to:
 
 ```yml
-
 ---
 env:
   PROJECT_ID: direct-album-348214
@@ -463,7 +461,6 @@ env:
 And the final step is to add the secrets required in the authentication step:
 
 ```yml
-
 ---
 - name: Google Auth
   id: auth
@@ -471,7 +468,6 @@ And the final step is to add the secrets required in the authentication step:
   with:
     workload_identity_provider: '${{ secrets.WIF_PROVIDER }}' # e.g. - projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider
     service_account: '${{ secrets.WIF_SERVICE_ACCOUNT }}' # e.g. - my-service-account@my-project.iam.gserviceaccount.com
-
 ```
 
 To find the `WIF_PROVIDER` value, head to Workload Identity Federation in the console and click into the pool you setup earlier:
@@ -492,7 +488,7 @@ To add a Github secret, navigate to the Settings tab in your Github repo and go 
 
 Then press the 'New repository secret' button and add the `WIF_PROVIDER` value.
 
-The `WIF_SERVICE_ACCOUNT` is the email address of the service account you created in a previous step above.
+The `WIF_SERVICE_ACCOUNT` is the email address of the service account you created in the previous step above.
 
 To find this, head to Service Accounts in the GCP console and you'll see a list of your service accounts. Grab the email address of the service account you created:
 
