@@ -68,6 +68,7 @@ Dockerfile
 .dockerignore
 node_modules
 npm-debug.log
+dist
 ```
 
 ## Test the container locally
@@ -102,7 +103,7 @@ If you run into similar trouble, you can try running the command `docker rm -f $
 
 ## Optimize Dockerfile for production
 
-Now that we've confirmed the image is working locally, let's try to reduce the size of the image.
+Now that we've confirmed the image is working locally, let's try to reduce the size of the image and make it more efficient for production. We'll also want to ensure the image is as secure as possible.
 
 Deployment tools like Cloud Run factor in the size of the image when calculating how much to charge you, so it's a good idea to keep the image size as small as possible.
 
@@ -122,44 +123,102 @@ It's [recommended](https://hub.docker.com/_/node) to use the Alpine node images 
 
 ### Add a NODE_ENV environment variable
 
-Many libraries have optimizations built in when the `NODE_ENV` environment variable is set to `producton`, so we can set this environment variable in the Dockerfile build by adding the following line to our Dockerfile (see next section for where to place this in the Dockerfile):
+Many libraries have optimizations built in when the `NODE_ENV` environment variable is set to `producton`, so we can set this environment variable in the Dockerfile build by adding the following line to our Dockerfile:
 
 ```Dockerfile
 ENV NODE_ENV production
+```
+
+### Use npm ci instead of npm install
+
+npm recommendeds using `npm ci` instead of `npm install` when building your image. Here's a quote taken from [their website](https://docs.npmjs.com/cli/v8/commands/npm-ci) on the reason why:
+
+"`npm ci` is similar to `npm install`, except it's meant to be used in automated environments such as test platforms, continuous integration, and deployment -- or any situation where you want to make sure you're doing a clean install of your dependencies."
+
+This fits perfectly with what we're doing, so we'll use `npm ci` instead of `npm install` in our Dockerfile.
+
+```Dockerfile
+RUN npm ci
+```
+
+### The USER instruction
+
+By default, if you don't specify a `USER` instruction in your Dockerfile, the image will run using the root permissions. This is a security risk, so we'll add a `USER` instruction to our Dockerfile.
+
+The node image we're using already has a user created for us called `node`, so let's use that:
+
+```Dockerfile
+USER node
+```
+
+Whenever you use the `COPY` instruction, it's also good practice to add a flag to ensure the user has the correct permissions.
+
+You can achieve this by using `--chown=node:node` whenever you use the `COPY instruction`, for example:
+
+```Dockerfile
+COPY --chown=node:node package*.json ./
 ```
 
 ### Use multistage builds
 
 In your Dockerfile you can define [multistage builds](https://earthly.dev/blog/docker-multistage/) which is a way to sequentially build the most optimized image by building multiple images.
 
-In practice, here's how we can use multistage builds in our Dockerfile:
+Outside of using a small image, multistage builds is where the biggest optimizations can be made.
 
 ```Dockerfile:Dockerfile
-# Base image
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
 FROM node:18-alpine As development
 
-# Create app directory
-WORKDIR /usr/src/app
+# ... your development build instructions here
 
-# Copy application dependency manifests to the container image.
-# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
-# Copying this first prevents re-running npm install on every code change.
-COPY package*.json ./
+###################
+# BUILD FOR PRODUCTION
+###################
 
-# Install app dependencies
-RUN npm install
+# Base image for production
+FROM node:18-alpine As build
 
-# Bundle app source
-COPY . .
+# ... your build instructions here
 
-# Creates a "dist" folder with the production build
-RUN npm run build
+###################
+# PRODUCTION
+###################
 
 # Base image for production
 FROM node:18-alpine As production
 
-# Set NODE_ENV environment variable
-ENV NODE_ENV production
+# ... your production instructions here
+
+```
+
+This multistage build uses 3 stages:
+
+1. **`development`** - This is the stage where we build the image for local development.
+2. **`build`** - This is the stage where we build the image for production.
+3. **`production`** - We copy over the relevant production build files and start the server.
+
+If you're not interested in using Docker locally to run your NestJS app, you could combine step 1 and step 2 into a single stage.
+
+However, what's nice about the above multi-stage setup is you then have a single Dockerfile that can be used in local development (in combination with a `docker-compose.yml` file) AND also creates a Docker image optimized for production.
+
+I'm working on a follow-on tutorial which explains this local development setup using `docker-compose.yml` and will be be publishing it in June 2022!
+
+### Putting it all together
+
+Using all the techniques described above, here is the Dockerfile we'll use to build our production optimized image:
+
+```Dockerfile:Dockerfile
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
+FROM node:18-alpine As development
+
+# Use the node user from the image (instead of the root user)
+USER node
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -167,21 +226,52 @@ WORKDIR /usr/src/app
 # Copy application dependency manifests to the container image.
 # A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
 # Copying this first prevents re-running npm install on every code change.
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 
-# Install production dependencies.
-# If you have a package-lock.json, speedier builds with 'npm ci', otherwise use 'npm install --only=production'
-RUN npm ci --only=production
+# Install app dependencies using the `npm ci` command instead of `npm install`
+RUN npm ci
 
 # Bundle app source
-COPY . .
+COPY --chown=node:node . .
 
-# Copy the bundled code
-COPY --from=development /usr/src/app/dist ./dist
+###################
+# BUILD FOR PRODUCTION
+###################
+
+FROM node:18-alpine As build
+
+USER node
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node package*.json ./
+
+# In order to run `npm run build` we need access to the Nest CLI which is a dev dependency. In the previous development stage we ran `npm ci` which installed all dependencies, so we can copy over the node_modules directory from the development image
+COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
+
+COPY --chown=node:node . .
+
+# Run the build command which creates the production bundle
+RUN npm run build
+
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
+
+# Running `npm ci` removes the existing node_modules directory and passing in --only=production ensures that only the production dependencies are installed. This ensures that the node_modules directory is as optimized as possible
+RUN npm ci --only=production && npm cache clean --force
+
+###################
+# PRODUCTION
+###################
+
+FROM node:18-alpine As production
+
+# Copy the bundled code from the build stage to the production image
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
 
 # Start the server using the production build
 CMD [ "node", "dist/main.js" ]
-
 ```
 
 Once you've updated your `Dockerfile`, you'll need to re-run the commands to build your image:
@@ -220,54 +310,56 @@ Instead of using `FROM node:14-alpine`, use `FROM node:18-alpine` to solve this 
 
 ## Conclusion
 
-In summary, here is our production optimized Docker image for a NestJS project:
+In summary, here is our production optimized Docker image for a NestJS project (without all the explainer comments):
 
 ```Dockerfile:Dockerfile
-# Base image
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
 FROM node:18-alpine As development
 
-# Create app directory
+USER node
+
 WORKDIR /usr/src/app
 
-# Copy application dependency manifests to the container image.
-# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
-# Copying this first prevents re-running npm install on every code change.
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 
-# Install app dependencies
-RUN npm install
+RUN npm ci
 
-# Bundle app source
-COPY . .
+COPY --chown=node:node . .
 
-# Creates a "dist" folder with the production build
+###################
+# BUILD FOR PRODUCTION
+###################
+
+FROM node:18-alpine As build
+
+USER node
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node package*.json ./
+
+COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
+
+COPY --chown=node:node . .
+
 RUN npm run build
 
-# Base image for production
-FROM node:18-alpine As production
-
-# Set NODE_ENV environment variable
 ENV NODE_ENV production
 
-# Create app directory
-WORKDIR /usr/src/app
+RUN npm ci --only=production && npm cache clean --force
 
-# Copy application dependency manifests to the container image.
-# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
-# Copying this first prevents re-running npm install on every code change.
-COPY package*.json ./
+###################
+# PRODUCTION
+###################
 
-# Install production dependencies.
-# If you have a package-lock.json, speedier builds with 'npm ci', otherwise use 'npm install --only=production'
-RUN npm ci --only=production
+FROM node:18-alpine As production
 
-# Bundle app source
-COPY . .
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
 
-# Copy the bundled code
-COPY --from=development /usr/src/app/dist ./dist
-
-# Start the server using the production build
 CMD [ "node", "dist/main.js" ]
 ```
 
