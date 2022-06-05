@@ -303,10 +303,19 @@ You might come into the following errors:
 It's likely you're using the wrong node version in your base image if you're getting errors like the following:
 
 - `Error: Cannot find module 'webpack'`
-- `ERROR [development 6/6] RUN npm run build`
-- `npm ERR! nest-cloud-run@0.0.1 build: nest build`
 
-Instead of using `FROM node:14-alpine`, use `FROM node:18-alpine` to solve this issue.
+For example, instead of using `FROM node:14-alpine`, use `FROM node:18-alpine` to solve this issue.
+
+### Error: nest command not found
+
+When you run `npm run build`, it uses the Nest CLI to generate the build files.
+
+The Nest CLI is a dev dependency, so if you're getting the error `nest command not found`, you need to either:
+
+- (Recommended option): Run `npm run build` in a multi-stage Dockerfile setup where you've installed both production and develpoment dependencies (with `npm ci`)
+- Update your package.json file to include the Nest CLI package in your production dependencies. The only downside of this approach as it increases the size of your node_modules resulting in a larger image
+
+The recommended option is what is implemented in the Dockerfile mentioned above in this tutorial if you want an example of how that works.
 
 ## Conclusion
 
