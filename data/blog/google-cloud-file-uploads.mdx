@@ -2,6 +2,7 @@
 title: File Uploads with GraphQL, Google Cloud Storage and Node.js
 h1: Uploading files to Google Cloud Storage with an Express GraphQL server
 date: '2021-09-07'
+lastmod: '2021-09-07'
 draft: false
 summary: Learn how to configure a GraphQL Express server to handle multipart requests and upload files to Google Cloud Storage
 images: ['/static/images/google-cloud-file-uploads/google-cloud-file-uploads.png']
@@ -32,7 +33,7 @@ By default, we can only send and receive JSON parsed data with GraphQL operation
 
 Because of this, we cannot use files as arguments in our GraphQL requests when sending them to our server.
 
-To enable sending files to our server, we need to configure our server to handle *multipart requests* that contain file data.
+To enable sending files to our server, we need to configure our server to handle _multipart requests_ that contain file data.
 
 This was available out the box with Apollo Server 2.0, however, with Apollo Server 3.0 we need to implement this configuration manually using the [graphql-upload](https://npm.im/graphql-upload) library.
 
@@ -51,7 +52,6 @@ npm install --save-dev @types/graphql-upload
 Out the box, GraphQL handles some default types like `Int` and `String`, however, you'll need to use the `graphql-upload` package to define a custom type for uploads.
 
 Let's add an `uploadFile` mutation which takes an `Upload` argument and returns back the file:
-
 
 ```ts:index.ts
 ...
@@ -81,7 +81,7 @@ import { GraphQLUpload } from 'graphql-upload'
 
 Let's dig into what's happening here.
 
-First of all, we're importing `GraphQLUpload` from the `graphql-upload` package. This is used to create an `Upload` scalar and mapping resolver. 
+First of all, we're importing `GraphQLUpload` from the `graphql-upload` package. This is used to create an `Upload` scalar and mapping resolver.
 
 This allows us to use `Upload!` as an argument in our `uploadFile` mutation so files can be sent to the server. The `!` means that this mutation requires a file to be passed as an argument whenever this mutation is called.
 
@@ -126,9 +126,9 @@ The middleware function `graphqlUploadExpress()` needs to be applied before `app
 
 Before handling the upload to Google, you'll want to put a limit on the file size that can be uploaded. Otherwise your cost with Google can get out of hand 💰.
 
-To implement this, we'll check the file size of the uploaded file. If the file is too big we'll throw an error. 
+To implement this, we'll check the file size of the uploaded file. If the file is too big we'll throw an error.
 
-Our mutation takes one argument - the uploaded file. In our `typeDefs`, we're using the `Upload` scalar to define the type of this argument. 
+Our mutation takes one argument - the uploaded file. In our `typeDefs`, we're using the `Upload` scalar to define the type of this argument.
 
 The `Upload` scalar returns a promise with some details on the file, so we'll need to `await` for the promise to resolve to get the details:
 
@@ -204,8 +204,6 @@ import { FileArgs } from './libs/files/types'
 ...
 ```
 
-
-
 We'll use the `filename` and `mimetype` later on, it's the `createReadStream` we need to help us get the size of the uploaded file.
 
 `createReadStream` is a function that opens up a stream and allows you to consume data from a source (in our case, the source being the uploaded file).
@@ -224,7 +222,7 @@ And then let's start writing our function to get the size of the file:
 
 ```ts:libs/files/index.ts
 // function to check if the size of the file is permitted
-export const checkFileSize = (createReadStream, maxSize) => 
+export const checkFileSize = (createReadStream, maxSize) =>
   new Promise((resolves, rejects) => {
     let filesize = 0;
     let stream = createReadStream();
@@ -245,7 +243,7 @@ The function accepts two arguments:
 
 The function returns a Promise as it's [seen as best practice](https://2ality.com/2019/11/nodejs-streams-async-iteration.html) to use asynchronous operations when working with streams.
 
-The promise will call events `data`, `end` and `error` to handle the stream. 
+The promise will call events `data`, `end` and `error` to handle the stream.
 
 First we define the `let filesize = 0`, and then use the addition assignment operator (`+=`) to increment the file size.
 
@@ -258,7 +256,7 @@ import { Buffer } from 'buffer';
 import { FileUpload } from "graphql-upload"
 
 // function to check if the size of the file is permitted
-export const checkFileSize = (createReadStream: FileUpload["createReadStream"], maxSize: number) => 
+export const checkFileSize = (createReadStream: FileUpload["createReadStream"], maxSize: number) =>
   new Promise((resolves, rejects) => {
     let filesize = 0;
     let stream = createReadStream();
@@ -276,7 +274,7 @@ export const checkFileSize = (createReadStream: FileUpload["createReadStream"], 
 
 Nice work.
 
-Let's finish this part off and throw an error if the size of the file is too big. 
+Let's finish this part off and throw an error if the size of the file is too big.
 
 We need to simply reject the Promise if the filesize is bigger than the `maxSize` argument you pass into the function:
 
@@ -285,7 +283,7 @@ import { Buffer } from 'buffer';
 import { FileUpload } from "graphql-upload"
 
 // function to check if the size of the file is permitted
-export const checkFileSize = (createReadStream: FileUpload["createReadStream"], maxSize: number) => 
+export const checkFileSize = (createReadStream: FileUpload["createReadStream"], maxSize: number) =>
   new Promise((resolves, rejects) => {
     let filesize = 0;
     let stream = createReadStream();
@@ -325,7 +323,7 @@ import { FileArgs } from './libs/files/types'
         try {
           const oneGb: number = 1000000000
           await checkFileSize(createReadStream, oneGb)
-        } 
+        }
         catch (error) {
           if (typeof error === 'number') {
             throw new UserInputError('Maximum file size is 1GB');
@@ -344,11 +342,11 @@ I'd recommend testing your resolver with a front end in each step of the tutoria
 
 ## Defining a unique file name
 
-For every file we upload to Google Cloud Storage, we want to give each file a unique filename. 
+For every file we upload to Google Cloud Storage, we want to give each file a unique filename.
 
 Google treats the filename as the unique identifier, meaning that if a file gets uploaded that has the same filename as a file that already exists in the bucket, then the old file will be overwritten with the new one.
 
-This is very problematic. 
+This is very problematic.
 
 Imagine one of your users, Tim Cook, uploads a file named `profile.png` which is Tim's profile picture. Then an hour later, another one of your users, Steve Wozniak, uploads a file named `profile.png` which is Steve's profile picture. Tim's profile picture will have been overwritten by Steve's.
 
@@ -373,7 +371,7 @@ import { FileArgs } from './libs/files/types'
         try {
           const oneGb: number = 1000000000
           await checkFileSize(createReadStream, oneGb)
-        } 
+        }
         catch (error) {
           if (typeof error === 'number') {
             throw new UserInputError('Maximum file size is 1GB');
@@ -458,19 +456,19 @@ And that's it! For every file that's uploaded to the server, you're generating a
 
 Let's now jump into setting up [Google Cloud Storage](https://cloud.google.com/storage) in our server.
 
-Developers turn to tools like Google Cloud Storage or AWS for storing files rather than storing files directly in the database. [This article](https://maximorlov.com/why-storing-files-database-bad-practice/) goes into some reasons why. 
+Developers turn to tools like Google Cloud Storage or AWS for storing files rather than storing files directly in the database. [This article](https://maximorlov.com/why-storing-files-database-bad-practice/) goes into some reasons why.
 
-Typically, it's best practice to leverage these cloud based systems for storing the files and save metadata in your database which can then easily reference the file stored in the cloud. 
+Typically, it's best practice to leverage these cloud based systems for storing the files and save metadata in your database which can then easily reference the file stored in the cloud.
 
-Google Cloud Storage allows us to upload and retrieve files from *buckets*. 
+Google Cloud Storage allows us to upload and retrieve files from _buckets_.
 
 You'll need to have an existing Google Cloud project set up before proceeding. Here's [the link](https://console.cloud.google.com/projectcreate) to creating a new project if you need it.
 
-Inside the [Google Cloud console](https://console.cloud.google.com), open up the navigation and head to *Cloud Storage* and then *Browser*:
+Inside the [Google Cloud console](https://console.cloud.google.com), open up the navigation and head to _Cloud Storage_ and then _Browser_:
 
 ![Navigate to Cloud Storage in Google Cloud Platform](/static/images/google-cloud-file-uploads/google-cloud-navigation-storage.png)
 
-You might be prompted to "Enable Billing", which is necessary if you'd like to use Google Cloud Buckets. 
+You might be prompted to "Enable Billing", which is necessary if you'd like to use Google Cloud Buckets.
 
 Next, press the **Create Bucket** button:
 
@@ -478,11 +476,11 @@ Next, press the **Create Bucket** button:
 
 Go through the form and keep the default settings, except for when you reach the section on "Choose how to control access to objects" - you should uncheck the box "Enforce public access prevention on this bucket".
 
-Once you're bucket is created, head to the *Permissions* tab and add a new permission:
+Once you're bucket is created, head to the _Permissions_ tab and add a new permission:
 
 ![Google Cloud Storage bucket permissions](/static/images/google-cloud-file-uploads/google-cloud-storage-permissions.png)
 
-Search and select *allUsers*, then choose the role *Storage Object Viewer*:
+Search and select _allUsers_, then choose the role _Storage Object Viewer_:
 
 ![Select allUsers and Storage Object Viewers permissions](/static/images/google-cloud-file-uploads/google-cloud-storage-permissions-allUsers.png)
 
@@ -490,25 +488,25 @@ Setting these configurations means that all files uploaded are accessible via a 
 
 In order to start uploading files to the bucket, we need to set up some credentials (a service account key) with Google Cloud. Only the people who have access to these credentials will be able to access your bucket.
 
-Head back into the navigation, go to *APIs and services* then select *Credentials*:
+Head back into the navigation, go to _APIs and services_ then select _Credentials_:
 
 ![Navigate to APIs and services](/static/images/google-cloud-file-uploads/google-cloud-navigation-credentials.png)
 
-You'll then want to press the *Create Credentials* button and select *Service account*:
+You'll then want to press the _Create Credentials_ button and select _Service account_:
 
 ![Create Google Cloud credentials](/static/images/google-cloud-file-uploads/google-cloud-create-credentials.png)
 
-Give your service account a name and hit *Create and continue*:
+Give your service account a name and hit _Create and continue_:
 
 ![Create a service account](/static/images/google-cloud-file-uploads/google-cloud-service-account.png)
 
-In the next step, you'll need to apply a role to this service account to define the kind of access it has. You'll want to scroll to *Cloud Storage* and then choose *Storage Admin*, which gives you full read and write operations to Google Cloud Storage:
+In the next step, you'll need to apply a role to this service account to define the kind of access it has. You'll want to scroll to _Cloud Storage_ and then choose _Storage Admin_, which gives you full read and write operations to Google Cloud Storage:
 
 ![Enable Storage Admin permissions to service account](/static/images/google-cloud-file-uploads/google-cloud-service-account-access.png)
 
-You can skip the final section. 
+You can skip the final section.
 
-Once your service account has been created, go into the service account and navigate to the *Keys* tab. You want to create a key for this service account which gives you the private, unique information you need to make read/write operations:
+Once your service account has been created, go into the service account and navigate to the _Keys_ tab. You want to create a key for this service account which gives you the private, unique information you need to make read/write operations:
 
 ![Navigate to the service account keys tab](/static/images/google-cloud-file-uploads/google-cloud-service-account-keys.png)
 
@@ -569,7 +567,7 @@ We can use the `credentials` object instead of the `keyFilename` and pass in som
 
 You'll need to open up the JSON file to grab the values you need, then add them to your env file so they're accessible via `process.env`.
 
-Okay! Nice work so far. 
+Okay! Nice work so far.
 
 The way we interact with Google Cloud will be centered around buckets - we'll be uploading files to a specific bucket.
 
@@ -617,7 +615,7 @@ import { FileArgs } from './libs/files/types'
         try {
           const oneGb: number = 1000000000
           await checkFileSize(createReadStream, oneGb)
-        } 
+        }
         catch (error) {
           if (typeof error === 'number') {
             throw new UserInputError('Maximum file size is 1GB');
@@ -675,7 +673,7 @@ import { bucket } from "./config"
 
 export const uploadToGoogleCloud = (createReadStream: FileUpload["createReadStream"], filename: string): Promise<void> => {
   // step 1 - upload the file to Google Cloud Storage
-  return new Promise((resolves, rejects) => 
+  return new Promise((resolves, rejects) =>
     createReadStream()
       .pipe(bucket.file(filename).createWriteStream({
         resumable: false,
@@ -701,7 +699,7 @@ import { bucket } from "./config"
 
 export const uploadToGoogleCloud = (createReadStream: FileUpload["createReadStream"], filename: string): Promise<void> => {
   // step 1 - upload the file to Google Cloud Storage
-  return new Promise((resolves, rejects) => 
+  return new Promise((resolves, rejects) =>
     createReadStream()
       .pipe(bucket.file(filename).createWriteStream({
         resumable: false,
@@ -715,7 +713,7 @@ export const uploadToGoogleCloud = (createReadStream: FileUpload["createReadStre
 
 Okay, that's the upload to Google handled!
 
-The final step is head back into the resolver and handle the response. 
+The final step is head back into the resolver and handle the response.
 
 We're going to return back a Google Cloud url of the uploaded file:
 
@@ -738,7 +736,7 @@ import { FileArgs } from './libs/files/types'
         try {
           const oneGb: number = 1000000000
           await checkFileSize(createReadStream, oneGb)
-        } 
+        }
         catch (error) {
           if (typeof error === 'number') {
             throw new UserInputError('Maximum file size is 1GB');

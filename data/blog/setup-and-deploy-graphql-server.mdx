@@ -3,6 +3,7 @@ title: Setup & Deploy a GraphQL server with Apollo, Prisma, Heroku & Postgres
 h1: How to setup & deploy an Express GraphQL server with Apollo, Prisma, TypeScript, Postgres & Heroku
 summary: Learn how to set up and deploy a production ready Express GraphQL server in TypeScript that can be used by a client to query and persist data from a Postgres database.
 date: '2021-08-19'
+lastmod: '2021-08-19'
 draft: false
 ---
 
@@ -72,7 +73,7 @@ git push -u origin main
 
 We're going to be using [TypeScript](https://www.typescriptlang.org/) in this tutorial.
 
-If you're not too familiar with TypeScript - don't fret. 
+If you're not too familiar with TypeScript - don't fret.
 
 This tutorial doesn't focus on how to use TypeScript, just how to set it up for a Node JS server side project.
 
@@ -101,13 +102,13 @@ Then paste in these compiler options:
 ```json
 {
   "compilerOptions": {
-    "target": "es6",                          
-    "module": "commonjs",                    
-    "lib": ["es6"],                     
+    "target": "es6",
+    "module": "commonjs",
+    "lib": ["es6"],
     "allowJs": true,
-    "outDir": "build",                          
+    "outDir": "build",
     "rootDir": "src",
-    "strict": true,         
+    "strict": true,
     "noImplicitAny": true,
     "esModuleInterop": true,
     "resolveJsonModule": true
@@ -215,7 +216,7 @@ import express from "express";
 import { ApolloServer, gql } from "apollo-server-express";
 
 // 1
-const startServer = async () => { 
+const startServer = async () => {
 
   // 2
   const app = express()
@@ -289,7 +290,8 @@ In response, the terminal should output:
 ```shell
 Server listening on localhost:4000/api
 ```
-ss     
+
+ss  
 Open `localhost:4000/api` in your browser and you'll be prompted to enter Apollo Studio. Press the "Query your server" button:
 
 ![Apollo Studio](/static/images/graphql-api-setup/apollo-studio.png)
@@ -337,9 +339,9 @@ Possibly. It's down to personal preference.
 
 I prefer to [release early and often](https://en.wikipedia.org/wiki/Release_early,_release_often).
 
-Just like running the command `npm run dev` to run your server on your local machine, Heroku needs to know about a command so it can execute the script to start the server. 
+Just like running the command `npm run dev` to run your server on your local machine, Heroku needs to know about a command so it can execute the script to start the server.
 
-We'll create 2 scripts: 
+We'll create 2 scripts:
 
 1. `build` - This will clean and compile our TypeScript code so it's ready for production
 2. `start` - This will first run the `build` command and then it will execute the compiled code
@@ -670,11 +672,11 @@ touch prisma/client.ts
 And then inside this new file, you need to instantiate the Prisma Client:
 
 ```ts
-const { PrismaClient } = require('@prisma/client');
+const { PrismaClient } = require('@prisma/client')
 
 module.exports = {
   prisma: new PrismaClient(),
-};
+}
 ```
 
 Now inside your `src/index.ts` file, you can import Prisma client so it's available to use for your queries and mutations:
@@ -790,7 +792,6 @@ If you're following this tutorial, review the Prisma docs and try to build out s
 - View a board
 - Edit a board
 - Delete a board
-
 
 ## Adding Postgres to Heroku
 

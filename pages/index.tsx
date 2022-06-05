@@ -22,7 +22,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
         <ul className="max-w-2xl">
           {!posts.length && 'No posts found.'}
           {posts.slice(0, MAX_DISPLAY).map((frontMatter) => {
-            const { slug, date, h1, summary } = frontMatter
+            const { slug, lastmod, h1, summary } = frontMatter
             return (
               <li key={slug} className="py-8">
                 <article>
@@ -30,7 +30,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
                     <dl className="mb-2">
                       <dt className="sr-only">Published on</dt>
                       <dd className="text-sm leading-6 dark:text-slate-400 lg:right-full lg:mr-8 lg:whitespace-nowrap">
-                        <time dateTime={date}>{formatDate(date)}</time>
+                        <time dateTime={lastmod}>{formatDate(lastmod)}</time>
                       </dd>
                     </dl>
                     <div className="space-y-5">
