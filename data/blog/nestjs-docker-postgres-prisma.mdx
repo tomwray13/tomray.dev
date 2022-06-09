@@ -1,0 +1,264 @@
+---
+title: NestJS Local Development With Docker And Postgres [W/ Hot Reloading]
+h1: NestJS local development with Docker and Postgres
+date: '2022-06-15'
+lastmod: '2022-06-15'
+draft: true
+summary: Learn how to write a docker-compose file that creates a local environment with hot reloading for NestJS, Postgres and Prisma
+---
+
+In this tutorial, we're going to use Docker Compose to create a local development environment for NestJS and Postgres with hot reloading.
+
+As a bonus step, we'll add Prisma to this setup as the ORM layer.
+
+Ready? Let's dive in.
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## Add Dockerfile
+
+In order to run NestJS locally with Docker, we need to add a Dockerfile:
+
+```bash
+touch Dockerfile
+```
+
+The Dockerfile lays out the instructions on how to _build_ the image.
+
+In a previous post in this blog, we covered [how to create a production optimized NestJS image with a Dockerfile](/nestjs-docker-production).
+
+We're going to use the Dockerfile from this post as this uses a multistage build approach perfect for local development.
+
+```Dockerfile:Dockerfile
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
+FROM node:18-alpine As development
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY --chown=node:node package*.json ./
+
+# Install app dependencies using the `npm ci` command instead of `npm install`
+RUN npm ci
+
+# Bundle app source
+COPY --chown=node:node . .
+
+# Use the node user from the image (instead of the root user)
+USER node
+
+###################
+# BUILD FOR PRODUCTION
+###################
+
+FROM node:18-alpine As build
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node package*.json ./
+
+# In order to run `npm run build` we need access to the Nest CLI.
+# The Nest CLI is a dev dependency,
+# In the previous development stage we ran `npm ci` which installed all dependencies.
+# So we can copy over the node_modules directory from the development image into this build image.
+COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
+
+COPY --chown=node:node . .
+
+# Run the build command which creates the production bundle
+RUN npm run build
+
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
+
+# Running `npm ci` removes the existing node_modules directory.
+# Passing in --only=production ensures that only the production dependencies are installed.
+# This ensures that the node_modules directory is as optimized as possible.
+RUN npm ci --only=production && npm cache clean --force
+
+USER node
+
+###################
+# PRODUCTION
+###################
+
+FROM node:18-alpine As production
+
+# Copy the bundled code from the build stage to the production image
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+```
+
+The great thing about multistage builds is that you can target a specific stage in your docker-compose file and run a specific command against the stage.
+
+See the `# BUILD FOR LOCAL DEVELOPMENT` stage in the Dockerfile above? That's what we'll isolate and target in the `docker-compose.yml` file.
+
+We'll set that up now in the next step.
+
+## Add docker-compose file
+
+Add a `docker-compose.yml` file to your project:
+
+```bash
+touch docker-compose.yml
+```
+
+The `docker-compose.yml` file lays out the instructions on how to run image(s) into containers - exactly what we need to spin up a local development environment.
+
+Let's add the instruction in the `docker-compose.yml` file to spin up a local development environment (starting with just the NestJS app):
+
+```yaml:docker-compose.yml
+services:
+  api:
+    build:
+      dockerfile: Dockerfile
+      context: .
+      # Only will build development stage from our dockerfile
+      target: development
+    # TBC
+    volumes:
+      - .:/usr/src/app
+      - ./usr/src/app/node_modules
+    env_file:
+    - .env
+    # Run a command against the development stage of the image
+    command: npm run start:dev
+    ports:
+      - 3000:3000
+```
+
+Let's highlight a few important parts of this file:
+
+- The `target: development` points to the `development` stage within the Dockerfile. This is great because it means it will ignore the other stages which are purposed for production and not required to run locally.
+- The `volumes` section enables the data to be persisted and is what makes the hot reloading possible.
+- The `env_file` section tells Docker to load the .env file into the container. Important if you have any environment variables set in your NestJS app.
+- The `command` section tells Docker to run the `npm run start:dev` command against the image built in the `development` stage
+
+If you now run the following command in your terminal:
+
+```bash
+docker-compose up -d
+```
+
+This will execute the instructions in the `docker-compose.yml` file.
+
+**Please note** - if your NestJS image already exists (for example, if you tested building the full image in the Dockerfile above), you'll need to remove it before spinning up the docker-compose. You can remove your image with the command `docker image rm ${IMAGE_NAME}` e.g. `docker image rm toms-nest-app`.
+
+If you used the same `ports` config as above, once the container is running, you can access your app at `localhost:3000`.
+
+Try editing some of your code to test out the hot reloading.
+
+What I like about this setup is that your Dockerfile handles both local development (with the use of `docker-compose`) AND builds a fully optimized, production ready image for deployment.
+
+## Add Postgres to docker-compose
+
+So at this stage, your NestJS app is running locally with hot reloading.
+
+Let's now spin up a local Postgres server alongside the NestJS app with docker-compose.
+
+To do that, we just need to tweak the `docker-compose.yml` file:
+
+```yaml:docker-compose.yml
+services:
+  api:
+    build:
+      dockerfile: Dockerfile
+      context: .
+      # Only will build development stage from our dockerfile
+      target: development
+    # TBC
+    volumes:
+      - .:/usr/src/app
+      - ./usr/src/app/node_modules
+    env_file:
+    - .env
+    # Run a command against the development stage of the image
+    command: npm run start:dev
+    ports:
+      - 3000:3000
+    depends_on:
+      - postgres
+  postgres:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - '5432:5432'
+    volumes:
+      - docker-nest-postgres:/var/lib/postgresql/data
+
+volumes:
+  docker-nest-postgres:
+```
+
+Make sure you update the mention of `docker-nest-postgres` to more suitable values for your project.
+
+You'll also need to make sure you have the 3 environment variables set in your local `.env` file.
+
+Let's now run the command to stop and remove all running containers (this is necessary as we've made changes to the `docker-compose.yml` file)
+
+```bash
+docker-compose down
+```
+
+And then run the command to execute the docker-compose file:
+
+```bash
+docker-compose up -d
+```
+
+The local Postgres server will now be running as well as the NestJS app. If you're using the Docker extension in Visual Studio Code, you will be able to see them both:
+
+[IMAGE]
+
+## Using Prisma with NestJS and Docker
+
+If you're using TypeORM and configured TypeORM within your NestJS app, the above setup is all you need to have your NestJS + Postgres local development environment up and running (you'll need to use the TypeORM CLI for handling local migrations)
+
+However, using Prisma with NestJS and Docker is a bit more complicated.
+
+Let's dive into some of the steps to get the Docker + NestJS + Postgres + Prisma stack up and running locally.
+
+### Setup prisma
+
+Ensure the Prisma CLI is setup as a dev dependency in your project:
+
+```bash
+npm install prisma --save-dev
+```
+
+Then setup Prisma in your project by running:
+
+```bash
+npx prisma init
+```
+
+This will:
+
+- Create a prisma directory with a `prisma.schema` file
+- Create (or update if it already exists) an `.env` file in the directory with the `DATABASE_URL` environment variable.
+
+- update env file
+- add schema file with models
+
+### Running migrations
+
+### Spin up Prisma Studio (optional step)
+
+### Add Prisma Client to your project
+
+### Move prisma directory inside /src
+
+### Include prisma generate in Dockerfile
