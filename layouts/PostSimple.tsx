@@ -15,7 +15,7 @@ interface Props {
 }
 
 export default function PostLayout({ frontMatter, children }: Props) {
-  const { slug, date, h1 } = frontMatter
+  const { slug, lastmod, h1 } = frontMatter
 
   return (
     <div>
@@ -29,7 +29,7 @@ export default function PostLayout({ frontMatter, children }: Props) {
                 <div>
                   <dt className="sr-only">Published on</dt>
                   <dd className="mb-2 text-sm font-medium leading-6 text-gray-500 dark:text-gray-400">
-                    Last updated: <time dateTime={date}>{formatDate(date)}</time>
+                    Last updated: <time dateTime={lastmod}>{formatDate(lastmod)}</time>
                   </dd>
                 </div>
               </dl>
