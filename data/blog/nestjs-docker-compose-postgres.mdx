@@ -368,7 +368,7 @@ I've added an overriding `DATABASE_URL` variable to the `docker-compose.yml` fil
 
 You'll notice the `DATABASE_URL` variable in the `docker-compose.yml` file is the same as the `DATABASE_URL` variable in the `.env` file - except the host has been updated to `postgres` instead of `localhost`.
 
-This will prevent you from getting error X.
+This will prevent you from getting error: `Error: Can't reach database server at `localhost`:`5432``
 
 The next step is to add Prisma Client to your app.
 
