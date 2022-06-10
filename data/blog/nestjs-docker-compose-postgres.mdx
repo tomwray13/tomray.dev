@@ -444,7 +444,13 @@ Specifically we've:
 - Installed new npm packages (`prisma` and `@prisma/client`)
 - Added an abstracted Prisma Service
 
-Execute the following command to your terminal to spin up your local environment:
+Whenever I make tweaks to the Docker Compose file I stop and remove the current running containers with:
+
+```bash
+docker-compose down
+```
+
+And then execute the following command to your terminal to spin up your local environment:
 
 ```bash
 docker-compose up -d -V --build
