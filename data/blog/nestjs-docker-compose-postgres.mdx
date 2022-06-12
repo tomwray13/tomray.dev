@@ -3,11 +3,12 @@ title: NestJS + Postgres Local Development With Docker Compose
 h1: NestJS and Postgres local development with Docker Compose
 date: '2022-06-12'
 lastmod: '2022-06-12'
-draft: true
+draft: false
 summary: Learn how to write a docker-compose file that creates a local environment with hot reloading for NestJS, Postgres and Prisma
+images: ['/static/images/nestjs-docker-compose-postgres/nest-docker-compose.png']
 ---
 
-In this tutorial, we're going to use Docker Compose to create a local development environment for NestJS and Postgres with hot reloading.
+In this tutorial, we're going to use [Docker Compose](https://docs.docker.com/compose/) to create a local development environment for NestJS and Postgres with hot reloading.
 
 As a bonus step, we'll add Prisma to this setup as the ORM layer.
 
@@ -17,7 +18,7 @@ Ready? Let's dive in.
 
 ## Add Dockerfile
 
-In order to run NestJS locally with Docker, we need to add a Dockerfile:
+To run NestJS locally with Docker, we need to add a Dockerfile:
 
 ```bash
 touch Dockerfile
@@ -124,7 +125,6 @@ services:
       context: .
       # Only will build development stage from our dockerfile
       target: development
-    # TBC
     volumes:
       - .:/usr/src/app
       - ./usr/src/app/node_modules
@@ -151,13 +151,13 @@ docker-compose up -d
 
 This will execute the instructions in the `docker-compose.yml` file.
 
-**Please note** - if your NestJS image already exists (for example, if you tested building the full image in the Dockerfile above), you'll need to remove it before spinning up the docker-compose. You can remove your image with the command `docker image rm ${IMAGE_NAME}` e.g. `docker image rm toms-nest-app`.
+**Please note** - if your NestJS image already exists (for example, if you tested building the full image in the Dockerfile above), you can run `docker-compose up -d --build` to rebuild the image.
 
 If you used the same `ports` config as above, once the container is running, you can access your app at `localhost:3000`.
 
 Try editing some of your code to test out the hot reloading.
 
-What I like about this setup is that your Dockerfile handles both local development (with the use of `docker-compose`) AND builds a fully optimized, production ready image for deployment.
+What I like about this setup is that your Dockerfile handles both local development (with the use of `docker-compose`) AND builds a fully optimized, production-ready image for deployment.
 
 ## Add Postgres to docker-compose
 
@@ -202,6 +202,11 @@ volumes:
   docker-nest-postgres:
 ```
 
+Here's the edits that have been made to the `docker-compose.yml` file:
+
+- Add a `depends_on` section to the `api` service. This creates a dependency between the `api` service and the `postgres` service (useful as the NestJS service will need to access the Postgres database).
+- Added the `postgres` service with all the configurations we need to spin up a local Postgres server.
+
 Make sure you update the mention of `docker-nest-postgres` to more suitable values for your project.
 
 You'll also need to make sure you have the 3 environment variables set in your local `.env` file like this:
@@ -224,15 +229,17 @@ And then run the command to execute the docker-compose file:
 docker-compose up -d
 ```
 
-The local Postgres server will now be running as well as the NestJS app. If you're using the Docker extension in Visual Studio Code, you will be able to see them both:
+The local Postgres server will now be running as well as the NestJS app. If you're using the [Docker extension in Visual Studio Code](https://code.visualstudio.com/docs/containers/overview), you will be able to see them both:
 
-[IMAGE]
+![VScode Docker running containers](/static/images/nestjs-docker-compose-postgres/vscode-docker.png)
+
+From here you can go ahead and choose your ORM of choice and start building your application. If you're interested to use Prisma, continue reading!
 
 ## Using Prisma with NestJS and Docker
 
 Let's dive into some of the steps to get the Docker + NestJS + Postgres + Prisma stack up and running locally.
 
-We'll be using the Dockerfile and docker-compose files from the above section as a starting point before making some tweakes below.
+We'll be using the Dockerfile and docker-compose files from the above section as a starting point before making some tweaks below.
 
 If you'd prefer to see the finished code, take a look at the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma).
 
@@ -301,7 +308,7 @@ Assuming your local Postgres server is still up and running (from the Docker Com
 
 When you add a new Prisma schema or when you make tweaks to your existing Prisma schema, you need to run migrations locally.
 
-When you run migrations locally, it checks the `DATABASE_URL` in your `.env` file and runs the migrations against this value, so it's important you've updated the `DATABASE_URL` variable in your `.env` file (as noted in a previous step above) to match your local Postgres server configurations.
+When you run migrations locally, it checks the `DATABASE_URL` in your `.env` file and runs the migrations against this value, so you must update the `DATABASE_URL` variable in your `.env` file (as noted in a previous step above) to match your local Postgres server configurations.
 
 To run migrations locally, you can run a command in your terminal (change `init` to a more suitable migration name):
 
@@ -339,7 +346,7 @@ src/
 
 Check the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma) if you want to take a closer look.
 
-As you've moved the prisma directory, we need to add the location to the `package.json` file so the Prisma CLI knows where to find your schema:
+If you've moved the prisma directory, you'll need to add the location to the `package.json` file so the Prisma CLI knows where to find your schema:
 
 ```json:package.json
 "prisma": {
@@ -368,7 +375,7 @@ I've added an overriding `DATABASE_URL` variable to the `docker-compose.yml` fil
 
 You'll notice the `DATABASE_URL` variable in the `docker-compose.yml` file is the same as the `DATABASE_URL` variable in the `.env` file - except the host has been updated to `postgres` instead of `localhost`.
 
-This will prevent you from getting error: `Error: Can't reach database server at `localhost`:`5432``
+This will prevent you from getting the error: `Error: Can't reach database server at localhost:5432`
 
 The next step is to add Prisma Client to your app.
 
@@ -399,7 +406,7 @@ Let's first add a custom script to the `package.json` file:
   },
 ```
 
-We can now use this custom script in our Dockerfile. It just needs to be run _after_ copy over the files in our local directory to the image:
+We can now use this custom script in our Dockerfile. It just needs to be run _after_ we copy over the files in our local directory to the image:
 
 ```Dockerfile:Dockerfile
 ###################
@@ -437,14 +444,14 @@ USER node
 
 Compared to the original `Dockerfile` and `docker-compose.yml` files at the start of this tutorial, we've made some changes to them and other files to get our local setup working with Prisma.
 
-Specifically we've:
+Specifically, we've:
 
 - Updated our image by tweaking the `Dockerfile` by adding the Prisma Generate command
 - Updated our `docker-compose.yml` file by adding an overrding `DATABASE_URL` variable
 - Installed new npm packages (`prisma` and `@prisma/client`)
 - Added an abstracted Prisma Service
 
-Whenever I make tweaks to the Docker Compose file I stop and remove the current running containers with:
+Whenever I make tweaks to the Docker Compose file I stop and remove the running containers with:
 
 ```bash
 docker-compose down
@@ -461,3 +468,91 @@ You might be wondering what those extra flags are in the command:
 - `-d`: Run the containers in detached mode
 - `-V`: Forces a fresh install of the dependencies in the container (required as we've installed new npm packages)
 - `--build`: Rebuilds the images (required as we tweaked the Dockerfile)
+
+Annoyingly, if you're working on an Apple Macbook/Mac on the M1 chip, you will run into the following error when you spin up the local environment:
+
+```
+Error: Unknown binaryTarget linux-arm64-openssl-undefined and no custom engine files were provided
+```
+
+This is a [open issue](https://github.com/prisma/prisma/issues/8478#issuecomment-1095544159) and on Prisma's radar to fix.
+
+This is pretty frustrating as one of the main benefits of working with Docker locally is that your whole team can have a consistent development environment (no matter what local machine you're using).
+
+If you're working as a solo dev and are not using a Macbook/Mac on the M1 chip, you can ignore these final paragraphs and stick to the setup described above.
+
+However, if you (or your colleagues) are working on a Macbook/Mac on the M1 chip then you'll need to update your Dockerfile to the following:
+
+```Dockerfile:Dockerfile
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
+FROM node:18 As development
+
+RUN apt-get update && apt-get install -y openssl
+
+# Create app directory
+WORKDIR /usr/src/app
+
+# Copy application dependency manifests to the container image.
+# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
+# Copying this first prevents re-running npm install on every code change.
+COPY --chown=node:node package*.json ./
+
+# Install app dependencies using the `npm ci` command instead of `npm install`
+RUN npm ci
+
+# Bundle app source
+COPY --chown=node:node . .
+
+RUN npm run prisma:generate
+
+# Use the node user from the image (instead of the root user)
+USER node
+
+###################
+# BUILD FOR PRODUCTION
+###################
+
+FROM node:18-alpine As build
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node package*.json ./
+
+# In order to run `npm run build` we need access to the Nest CLI which is a dev dependency. In the previous development stage we ran `npm ci` which installed all dependencies, so we can copy over the node_modules directory from the development image
+COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
+
+COPY --chown=node:node . .
+
+# Run the build command which creates the production bundle
+RUN npm run build
+
+# Set NODE_ENV environment variable
+ENV NODE_ENV production
+
+# Running `npm ci` removes the existing node_modules directory and passing in --only=production ensures that only the production dependencies are installed. This ensures that the node_modules directory is as optimized as possible
+RUN npm ci --only=production && npm cache clean --force
+
+USER node
+
+###################
+# PRODUCTION
+###################
+
+FROM node:18-alpine As production
+
+# Copy the bundled code from the build stage to the production image
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
+
+# Start the server using the production build
+CMD [ "node", "dist/main.js" ]
+```
+
+The only thing tweaked to the Dockerfile is using `node:18` as the base image instead of `node:18-alpine` and also including `RUN apt-get update && apt-get install -y openssl`.
+
+This won't have an impact on the image size for the production image as the base image for production uses `node:18-alpine`.
+
+And that's it! You're now running your local NestJs + Postgres + Prisma development environment using Docker containers.

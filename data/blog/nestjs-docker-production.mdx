@@ -12,7 +12,7 @@ images: ['/static/images/nestjs-docker-production/nest-docker-production.png']
 
 This is a step-by-step tutorial on how to write a Dockerfile for a NestJS project that creates a production optimized image.
 
-With this Dockerfile you are then setup for containerized deployment, for example, with [Cloud Run](/deploy-nestjs-cloud-run).
+With this Dockerfile you are then setup for [local development](/nestjs-docker-compose-postgres) as well as containerized deployment, for example, with [Cloud Run](/deploy-nestjs-cloud-run).
 
 Ready? Let's dive in.
 
@@ -204,7 +204,7 @@ If you're not interested in using Docker locally to run your NestJS app, you cou
 
 However, what's nice about the above multi-stage setup is you then have a single Dockerfile that can be used in local development (in combination with a `docker-compose.yml` file) AND also creates a Docker image optimized for production.
 
-I'm working on a follow-on tutorial which explains this local development setup using `docker-compose.yml` and will be be publishing it in June 2022!
+If you're interested in using this multistage Dockerfile with Docker Compose for local development (with hot reloading), check out [this post](/nestjs-docker-compose-postgres).
 
 ### Putting it all together
 
