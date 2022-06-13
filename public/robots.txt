@@ -1,0 +1,9 @@
+# *
+User-agent: *
+Allow: /
+
+# Host
+Host: https://tomray.dev
+
+# Sitemaps
+Sitemap: https://tomray.dev/sitemap.xml
