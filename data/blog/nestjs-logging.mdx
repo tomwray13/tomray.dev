@@ -1,0 +1,382 @@
+---
+title: 'Ultimate Guide: How To Use NestJS Logger [Plus Pino Setup]'
+h1: 'How to use the NestJS Logger (plus Pino setup)'
+date: '2022-07-10'
+lastmod: '2022-07-10'
+draft: true
+summary: Learn how to use the NestJS logger to add automatic HTTP request logging (and other cool capabilities) to your application. Also includes Pino setup.
+images: ['/static/images/nestjs-logging/nest-logger.png']
+---
+
+![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-logger.png)
+
+In this tutorial, we're going to do a deep dive into the NestJS logger.
+
+First, we'll look at how you can use the default NestJS logger to add logs inside your services as well as automatically log HTTP requests.
+
+If you're looking to setup logging more suited for production, we'll then extend the NestJS logger for JSON formatting with the set up of Pino.
+
+Ready? Let's dive in.
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## Using the default built-in NestJS logger
+
+NestJS has a [built-in text-based logger](https://docs.nestjs.com/techniques/logger) you can use without needing to install any additional packages.
+
+There will be 2 main use-cases for logging in a NestJS app:
+
+- Logging useful info and errors in your NestJS controllers and providers
+- Logging HTTP requests that hit your NestJS server
+
+Let's go into how you can use the NestJS logger to do these things.
+
+### Using NestJS Logger in your services
+
+It's seen as best practice to instantiate the NestJS logger inside each service you want logging functionality for, like this:
+
+```typescript
+import { Logger, Injectable } from '@nestjs/common';
+
+@Injectable()
+class Pokemon {
+  private readonly logger = new Logger(Pokemon.name);
+
+  ...
+}
+```
+
+See how `Pokemon.name` was passed in as an argument in the constructor?
+
+This sets the `context` in the NestJS logger, meaning that all logs will be prefixed in square brackets with what you pass in, like this:
+
+```bash
+[Nest] 75224  - 26/06/2022, 17:43:27     LOG [Pokemon] ...
+```
+
+We can now use the logger in our service:
+
+```typescript
+import { Logger, Injectable } from '@nestjs/common';
+
+@Injectable()
+class Pokemon {
+  private readonly logger = new Logger(Pokemon.name);
+
+  findAll(): {
+    this.logger.log(`Retrieve all Pokemon`);
+    ...
+  }
+}
+```
+
+### Logging errors
+
+You can use the `error` method in the Logger instance to log errors.
+
+For example, inside a `try catch`:
+
+```typescript
+import { Logger, Injectable } from '@nestjs/common';
+
+@Injectable()
+class Pokemon {
+  private readonly logger = new Logger(Pokemon.name);
+
+  async findAll(): {
+    try {
+      ... // some code which could throw an error
+    } catch (error) {
+      this.logger.error(error)
+      throw new Error(error);
+    }
+  }
+}
+```
+
+While the above works for logging errors in your application, it's a bit of a pain to manually have to log each error that you throw. Also what about unhandled exceptions (i.e. errors that your code doesn't catch)?
+
+Instead of manually logging each error, it's possible (and much cleaner) to automatically log your errors and unhandled exceptions with the help of custom NestJS exception filters and custom error classes.
+
+That's a little out of the scope of this tutorial as it requires a deep dive into NestJS error handling, but I'll be writing a tutorial soon which covers exactly this!
+
+### Automatically log HTTP requests
+
+To add automatic HTTP logging with the built-in NestJS logger, we'll use middleware as described in [the documentation](https://docs.nestjs.com/middleware#middleware).
+
+First create a file for the middleware:
+
+```bash
+touch src/middleware/logger.middleware.ts
+```
+
+And then add a basic middleware class:
+
+```typescript:logger.middleware.ts
+import { Injectable, Logger, NestMiddleware } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  private logger = new Logger(`HTTP`);
+  use(req: Request, res: Response, next: NextFunction) {
+    this.logger.log(`Logging HTTP request ${req.method} ${req.url} ${res.statusCode}`,);
+    next();
+  }
+}
+
+```
+
+You should tweak the log shown in the above example so you log the exact details you want from the request and/or response.
+
+To apply this middleware, you modify the `AppModule` class like this:
+
+```typescript:app.module.ts
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { LoggerMiddleware } from './middleware/logger.middleware';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes('*');
+  }
+}
+
+```
+
+The above wildcard `*` means that all routes will be logged, but you could tweak the wildcard if you only want to log certain requests.
+
+**Please note** - The Pino setup [described below](#nestjs-logger-with-pino) handles automatic HTTP request logging by default so this middleware is not required if you decide to go with Pino as your logger.
+
+### Conclusion on built-in NestJS logger
+
+The NestJS built-in logger is cool for local development, but the main downside is that it's not formatted in JSON by default, making it more difficult to do analysis and troubleshooting in your cloud logging infrastructure.
+
+In the next sections, we'll go through the steps to setup Pino in the NestJS logger (which has built-in JSON logging).
+
+## NestJS Logger with Pino
+
+Pino is my go-to logger for NestJS projects.
+
+It handles logging HTTP requests by default (no need for the middleware like in the previous setup above) and more easily handles objects in your logs because it's a JSON-based logger.
+
+We'll be using the official [NestJS Pino package](https://github.com/iamolegga/nestjs-pino) for this setup.
+
+First, install the relevant packages:
+
+```bash
+npm i nestjs-pino pino-http
+```
+
+Then import the logger into your root module. I recommend doing this inside the default `app.module.ts` file so your logger is available in all of your controllers and providers:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { LoggerModule } from 'nestjs-pino';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot(),
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+And finally, inside the `main.ts` file:
+
+```typescript:main.ts
+import { Logger } from 'nestjs-pino';
+
+const app = await NestFactory.create(AppModule, { bufferLogs: true });
+app.useLogger(app.get(Logger));
+```
+
+The above setup does the following:
+
+- Automatically logs all the HTTP requests coming into your NestJS app
+- Enables you to keep using the built-in NestJS logger (except Pino is now the logger behind the scenes)
+
+Try adding a log to one of your services (like the following example) to see the result in your terminal:
+
+```typescript
+import { Logger, Injectable } from '@nestjs/common';
+
+@Injectable()
+class Pokemon {
+  private readonly logger = new Logger(Pokemon.name);
+
+  findAll(): {
+    this.logger.log(`Retrieve all Pokemon`);
+    ...
+  }
+}
+```
+
+Nice work! Although you will notice that the logs look kinda ugly and are a little hard to read:
+
+![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-pino-logs.png)
+
+Let's take care of that in the next section.
+
+### Install pino pretty and setup configs
+
+Although we want our logs in JSON format, we also want them to be pretty - that's where the `pino-pretty` package comes in.
+
+This package applies 'pretty formatting' to your logs, making them more readable (for example the log level and timestamp).
+
+First, install the package:
+
+```bash
+npm i pino-pretty
+```
+
+And then add some configurations to the `forRoot` method:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        transport: {
+          target: 'pino-pretty',
+        },
+      },
+    })
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+You will now see the logs are formatted and full of colour 🌈!
+
+I like to prevent line breaks in my logs which you can do by adding the `singleLine` option to the configuration:
+
+```typescript:app.module.ts
+...
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        transport: {
+          target: 'pino-pretty',
+          options: {
+            singleLine: true,
+          },
+        },
+      },
+    })
+  ],
+  ...
+})
+export class AppModule {}
+
+```
+
+### Passing objects into the Pino logs
+
+You will likely want to pass in objects into your logs and make use of the built-in JSON nature of Pino.
+
+To do that you'll need to follow the "Pino" way of doing things, where you pass in the object as the first argument and the log message as the 2nd argument. Here's an example:
+
+```ts
+this.logger.error({ id: `retrieve-all-pokemon-error` }, `Retrieve all Pokemon`) // object passed in first argument
+```
+
+You will now see the logs in your terminal look like this:
+
+![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-log-error.png)
+
+### Setting context for the automatic HTTP logging
+
+When you instantiate the logger, you can optionally pass in a string that sets a context property in the JSON log, like this:
+
+```typescript
+import { Logger, Injectable } from '@nestjs/common';
+
+@Injectable()
+class Pokemon {
+  private readonly logger = new Logger(Pokemon.name);
+
+  ...
+}
+```
+
+This is helpful when analysing/troubleshooting your logs as you can group your logs by this context value.
+
+The automatic logs that come through with each HTTP request, however, do not have a context value set in the logger. You can fix that by adding a customProp to the configuration:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [
+    LoggerModule.forRoot({
+      pinoHttp: {
+        customProps: (req, res) => ({
+          context: 'HTTP',
+        }),
+        transport: {
+          target: 'pino-pretty',
+        },
+      },
+    })
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+Now each HTTP log that comes through on each request will include in the object `{ "context":"HTTP" }`
+
+### Expose error object in HTTP log
+
+For the automatic HTTP logs, if it's an error status code then the log includes an `err` property with some default details about the error.
+
+This error does not actually tell us anything about the error (e.g. the error message or the stack trace).
+
+We can modify this by using the `LoggerErrorInterceptor` from the `nestjs-pino` package in the `main.ts` bootstrap file:
+
+```typescript:main.ts
+import { Logger, LoggerErrorInterceptor } from 'nestjs-pino';
+
+const app = await NestFactory.create(AppModule, { bufferLogs: true });
+app.useLogger(app.get(Logger));
+app.useGlobalInterceptors(new LoggerErrorInterceptor());
+```
+
+### Conclusion on using Pino in NestJS
+
+Using this Pino package for NestJS logging is great because:
+
+- It logs every request/response automatically without having to add any middleware
+- The logs are in JSON format
+- You can keep using the built-in NestJS logger (except Pino is now the logger behind the scenes)
+
+Even though the [NestJS Winston package](https://github.com/gremo/nest-winston#readme) is more popular (based on npm downloads per week), I find that the Pino integration is more flexible and easy to use.
+
+What do you think? Let me know in the comments below.
