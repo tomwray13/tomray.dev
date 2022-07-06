@@ -8,7 +8,7 @@ summary: Learn how to use the NestJS logger to add automatic HTTP request loggin
 images: ['/static/images/nestjs-logging/nest-logger.png']
 ---
 
-![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-logger.png)
+![How to use the NestJS Logger](/static/images/nestjs-logging/nest-logger.png)
 
 In this tutorial, we're going to do a deep dive into the NestJS logger.
 
@@ -225,7 +225,7 @@ class Pokemon {
 
 Nice work! Although you will notice that the logs look kinda ugly and are a little hard to read:
 
-![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-pino-logs.png)
+![NestJS Pino default logs](/static/images/nestjs-logging/nest-pino-logs.png)
 
 Let's take care of that in the next section.
 
@@ -304,7 +304,7 @@ this.logger.error({ id: `retrieve-all-pokemon-error` }, `Retrieve all Pokemon`) 
 
 You will now see the logs in your terminal look like this:
 
-![How to build a NestJS Docker image for production](/static/images/nestjs-logging/nest-log-error.png)
+![Logging a Pino error](/static/images/nestjs-logging/nest-log-error.png)
 
 ### Setting context for the automatic HTTP logging
 
