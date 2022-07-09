@@ -1,0 +1,136 @@
+---
+title: 'Ultimate Guide: NestJS Error Handling [Updated 2022]'
+h1: 'NestJS error handling best practices'
+date: '2022-07-24'
+lastmod: '2022-07-24'
+draft: true
+summary: Learn the techniques and best practices for handling NestJS exceptions and errors by using automatic error logging, custom exception filters and more.
+---
+
+This tutorial covers best practices to use when handling errors in NestJS.
+
+There are many considerations to make when throwing exceptions in a NestJS application:
+
+- How to setup automatic logging of operational errors and unhandled errors
+- Whether or not to throw http exceptions directly in the service layer
+- How to handle the bubbling up of exceptions (should we catch them all in the controller layer?)
+- How to leverage NestJS exception filters feature
+
+This tutorial will cover the above points and more!
+
+Ready? Let's dive in.
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## Setup automatic logging of errors
+
+Ever find yourself manually logging everytime you throw an error, like this:
+
+```ts
+import { Injectable, Logger } from '@nestjs/common'
+
+@Injectable()
+export class PokemonService {
+  private readonly logger = new Logger(MyService.name)
+
+  async findOne(id: number): Promise<string> {
+    try {
+      // some code here
+    } catch (error) {
+      this.logger.error(error)
+      throw new Error(error)
+    }
+  }
+}
+```
+
+While this approach works, there are a couple of downsides:
+
+- Us developers are lazy and manually logging errors is a pain
+- Logging errors is super important, but the above approach does not enforce any consistencies across the logging which can help with debugging down the line.
+
+Let's expore some ways to solve this.
+
+### Could NestJS exception filters be the solution?
+
+I've seen some suggestions in the NestJS community to add logging to a custom [NestJS exception filter](https://docs.nestjs.com/exception-filters) to solve this problem.
+
+However, adding logging to a custom exception filter might not be the best approach either, as errors only pass through the filters that haven't been caught in your app (i.e. the error has bubbled all the way up).
+
+For example, you might have a `try catch` within your service layer like this:
+
+```ts
+import { Injectable, Logger } from '@nestjs/common'
+
+@Injectable()
+export class PokemonService {
+  async findOne(id: string): Promise<string> {
+    try {
+      // some code here
+    } catch (error) {
+      // catch the error here
+    }
+  }
+}
+```
+
+And in the controller, you might want to always return a successful response to the client (even if the service layer catches an error):
+
+```ts
+import { Controller, Get, Param } from '@nestjs/common'
+import { PokemonService } from './pokemon.service'
+
+@Controller('pokemon')
+export class PokemonController {
+  constructor(private readonly pokemonService: PokemonService) {}
+
+  @Get(':id')
+  async findOne(@Param('id') id: string): Promise<string> {
+    try {
+      return await this.pokemonService.findOne(+id)
+    } catch (error) {
+      return `default string`
+    }
+  }
+}
+```
+
+In the above code, if an error is caught in the service layer, the controller will return `default string` to the client meaning the error will never reach the exception filter.
+
+So if your automatic logging is set up via a custom exception filter, it won't handle the logging for any errors that don't bubble up. This isn't ideal - we want to log all errors that thrown in the application.
+
+### Throwing custom errors
+
+We need a different approach that logs the error everytime an error is thrown, not just when the error bubbles all the way up.
+
+To achieve this, we can extend the [built-in error class](https://nodejs.org/api/errors.html#class-error) to create custom errors.
+
+Let's add a `BaseError` class to our NestJS application which extends the built-in `Error` class and automatic logs an error:
+
+```ts
+import { Logger } from '@nestjs/common'
+
+export interface BaseErrorMeta {
+  id: string
+  service: string
+  logMessage: string
+  errorMessage?: string
+  data?: object
+}
+
+export class BaseError extends Error {
+  constructor(meta: BaseErrorMeta) {
+    super(meta.errorMessage ? `${meta.errorMessage}` : `Internal server error`)
+
+    const logger = new Logger(meta.service)
+    logger.error(
+      {
+        id: meta.id,
+        data: { ...meta.data },
+        trace: this.stack,
+      },
+      meta.logMessage
+    )
+  }
+}
+```
