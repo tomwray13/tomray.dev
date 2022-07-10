@@ -8,7 +8,7 @@
   }
 
   h1 {
-    @apply mb-6 text-4xl md:text-5xl font-bold text-center;
+    @apply mb-6 text-center text-4xl font-bold md:text-5xl;
   }
   h2 {
     @apply text-2xl font-semibold;
@@ -27,7 +27,7 @@
 }
 
 .footnotes {
-  @apply pt-8 mt-12 border-t border-gray-200 dark:border-gray-700;
+  @apply mt-12 border-t border-gray-200 pt-8 dark:border-gray-700;
 }
 
 .csl-entry {
@@ -38,4 +38,8 @@
 input:-webkit-autofill,
 input:-webkit-autofill:focus {
   transition: background-color 600000s 0s, color 600000s 0s;
+}
+
+::marker {
+  @apply text-gray-300 dark:text-gray-500;
 }

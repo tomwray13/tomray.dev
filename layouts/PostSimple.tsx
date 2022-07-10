@@ -45,7 +45,12 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
             <div className="xl:col-span-3 xl:row-span-2 xl:pb-0">
               <div className="lg:flex">
                 <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
-                <TOCSidebar toc={toc} asDisclosure />
+                <div className="sticky top-0 hidden h-screen w-full pt-6 pb-8 pl-6 lg:block xl:pl-10">
+                  <TOCSidebar toc={toc} asDisclosure />
+                  {/* <div>
+                    <h3 className="mb-2 font-bold">Share</h3>
+                  </div> */}
+                </div>
               </div>
               <div className="mx-auto max-w-2xl">
                 <Comments frontMatter={frontMatter} />

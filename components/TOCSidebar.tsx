@@ -79,9 +79,11 @@ const TOCSidebar = ({
       {filteredToc.map((heading) => (
         <li
           key={heading.value}
-          className={`${heading.depth >= indentDepth && 'ml-6'} ${
-            heading.url.slice(1) === activeId && `font-semibold opacity-100`
-          } mb-2 text-sm opacity-60 hover:underline hover:opacity-100`}
+          className={`${heading.depth >= indentDepth && 'ml-6 list-disc'} ${
+            heading.url.slice(1) === activeId
+              ? `font-semibold text-blue-500 opacity-100`
+              : ` opacity-70`
+          } mb-2 text-sm hover:underline hover:opacity-100`}
         >
           <a href={heading.url}>{heading.value}</a>
         </li>
@@ -90,7 +92,7 @@ const TOCSidebar = ({
   )
 
   return (
-    <div className="sticky top-0 hidden h-screen w-full pt-6 pb-8 pl-6 lg:block xl:pl-10">
+    <div className="mb-8">
       <h3 className="mb-2 font-bold">Table of Contents</h3>
       <div className="">{tocList}</div>
     </div>
