@@ -8,6 +8,18 @@ import { ReactNode } from 'react'
 import { PostFrontMatter } from 'types/PostFrontMatter'
 import { Toc } from 'types/Toc'
 import TOCSidebar from '@/components/TOCSidebar'
+import {
+  EmailIcon,
+  EmailShareButton,
+  FacebookIcon,
+  FacebookShareButton,
+  LinkedinIcon,
+  LinkedinShareButton,
+  RedditIcon,
+  RedditShareButton,
+  TwitterIcon,
+  TwitterShareButton,
+} from 'next-share'
 
 interface Props {
   frontMatter: PostFrontMatter
@@ -19,10 +31,11 @@ interface Props {
 
 export default function PostLayout({ frontMatter, children, toc }: Props) {
   const { slug, lastmod, h1 } = frontMatter
+  const url = `${siteMetadata.siteUrl}/${slug}`
 
   return (
     <div>
-      <BlogSEO url={`${siteMetadata.siteUrl}/${slug}`} {...frontMatter} />
+      <BlogSEO url={url} {...frontMatter} />
       <ScrollTopAndComment />
       <article className="mx-auto">
         <div>
@@ -47,9 +60,23 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                 <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
                 <div className="sticky top-0 hidden h-screen w-full pt-6 pb-8 pl-6 lg:block xl:pl-10">
                   <TOCSidebar toc={toc} asDisclosure />
-                  {/* <div>
+                  <div>
                     <h3 className="mb-2 font-bold">Share</h3>
-                  </div> */}
+                    <div className="space-x-2">
+                      <TwitterShareButton url={url} title={h1}>
+                        <TwitterIcon size={32} round />
+                      </TwitterShareButton>
+                      <RedditShareButton url={url} title={h1}>
+                        <RedditIcon size={32} round />
+                      </RedditShareButton>
+                      <LinkedinShareButton url={url}>
+                        <LinkedinIcon size={32} round />
+                      </LinkedinShareButton>
+                      <EmailShareButton url={url} subject={'Next Share'} body="body">
+                        <EmailIcon size={32} round />
+                      </EmailShareButton>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="mx-auto max-w-2xl">

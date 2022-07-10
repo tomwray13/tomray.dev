@@ -72,8 +72,6 @@ const TOCSidebar = ({
   const idList = getIDs(toc)
   const activeId = useActiveId(idList)
 
-  console.log('active', filteredToc)
-
   const tocList = (
     <ul>
       {filteredToc.map((heading) => (
