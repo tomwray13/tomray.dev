@@ -372,4 +372,9 @@ COPY --chown=node:node --from=build /usr/src/app/dist ./dist
 CMD [ "node", "dist/main.js" ]
 ```
 
-Do you have any further optimizations you can make to the above image? Drop them in the comments below!
+Here's a couple of extra resources related to deploying to production that might be helpful:
+
+- [Using the NestJS Logger](/nestjs-logging)
+- [Deploying NestJS app to Cloud Run](/deploy-nestjs-cloud-run)
+
+Do you have any further optimizations you can make to the above Docker image? Drop them in the comments below!
