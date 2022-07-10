@@ -1,48 +1,58 @@
-import SocialIcon from '@/components/social-icons'
-import Image from '@/components/Image'
-import { PageSEO } from '@/components/SEO'
+import PageTitle from '@/components/PageTitle'
+import { BlogSEO } from '@/components/SEO'
+import siteMetadata from '@/data/siteMetadata'
+import formatDate from '@/lib/utils/formatDate'
+import Comments from '@/components/comments'
+import ScrollTopAndComment from '@/components/ScrollTopAndComment'
 import { ReactNode } from 'react'
-import { AuthorFrontMatter } from 'types/AuthorFrontMatter'
+import { PostFrontMatter } from 'types/PostFrontMatter'
+import { Toc } from 'types/Toc'
+import TOCSidebar from '@/components/TOCSidebar'
 
 interface Props {
+  frontMatter: PostFrontMatter
   children: ReactNode
-  frontMatter: AuthorFrontMatter
+  next?: { slug: string; title: string }
+  prev?: { slug: string; title: string }
+  toc: Toc
 }
 
-export default function AuthorLayout({ children, frontMatter }: Props) {
-  const { name, avatar, occupation, company, email, twitter, linkedin, github } = frontMatter
+export default function PostLayout({ frontMatter, children, toc }: Props) {
+  const { slug, lastmod, h1 } = frontMatter
 
   return (
-    <>
-      <PageSEO title={`About - ${name}`} description={`About me - ${name}`} />
-      <div className="divide-y">
-        <div className="space-y-2 pt-6 pb-8 md:space-y-5">
-          <h1 className="text-3xl font-extrabold leading-9 tracking-tight text-gray-900 dark:text-gray-100 sm:text-4xl sm:leading-10 md:text-6xl md:leading-14">
-            About
-          </h1>
-        </div>
-        <div className="items-start space-y-2 xl:grid xl:grid-cols-3 xl:gap-x-8 xl:space-y-0">
-          <div className="flex flex-col items-center space-x-2 pt-8">
-            <Image
-              src={avatar}
-              alt="avatar"
-              width="192px"
-              height="192px"
-              className="h-48 w-48 rounded-full"
-            />
-            <h3 className="pt-4 pb-2 text-2xl font-bold leading-8 tracking-tight">{name}</h3>
-            <div className="text-gray-500 dark:text-gray-400">{occupation}</div>
-            <div className="text-gray-500 dark:text-gray-400">{company}</div>
-            <div className="flex space-x-3 pt-6">
-              <SocialIcon kind="mail" href={`mailto:${email}`} />
-              <SocialIcon kind="github" href={github} />
-              <SocialIcon kind="linkedin" href={linkedin} />
-              <SocialIcon kind="twitter" href={twitter} />
+    <div>
+      <BlogSEO url={`${siteMetadata.siteUrl}/${slug}`} {...frontMatter} />
+      <ScrollTopAndComment />
+      <article className="mx-auto">
+        <div>
+          <header className="mx-auto max-w-2xl">
+            <div className="text-center">
+              <dl>
+                <div>
+                  <dt className="sr-only">Published on</dt>
+                  <dd className="mb-2 text-sm font-medium leading-6 text-gray-500 dark:text-gray-400">
+                    Last updated: <time dateTime={lastmod}>{formatDate(lastmod)}</time>
+                  </dd>
+                </div>
+              </dl>
+              <div>
+                <PageTitle>{h1}</PageTitle>
+              </div>
+            </div>
+          </header>
+          <div className="pb-8  " style={{ gridTemplateRows: 'auto 1fr' }}>
+            <div className="xl:col-span-3 xl:row-span-2 xl:pb-0">
+              <div className="lg:flex">
+                <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
+              </div>
+              <div className="mx-auto max-w-2xl">
+                <Comments frontMatter={frontMatter} />
+              </div>
             </div>
           </div>
-          <div className="prose max-w-none pt-8 pb-8 dark:prose-dark xl:col-span-2">{children}</div>
         </div>
-      </div>
-    </>
+      </article>
+    </div>
   )
 }
