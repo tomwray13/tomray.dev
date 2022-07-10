@@ -11,8 +11,6 @@ import TOCSidebar from '@/components/TOCSidebar'
 import {
   EmailIcon,
   EmailShareButton,
-  FacebookIcon,
-  FacebookShareButton,
   LinkedinIcon,
   LinkedinShareButton,
   RedditIcon,
