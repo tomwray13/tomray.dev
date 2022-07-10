@@ -6,24 +6,27 @@ import Comments from '@/components/comments'
 import ScrollTopAndComment from '@/components/ScrollTopAndComment'
 import { ReactNode } from 'react'
 import { PostFrontMatter } from 'types/PostFrontMatter'
+import { Toc } from 'types/Toc'
+import TOCSidebar from '@/components/TOCSidebar'
 
 interface Props {
   frontMatter: PostFrontMatter
   children: ReactNode
   next?: { slug: string; title: string }
   prev?: { slug: string; title: string }
+  toc: Toc
 }
 
-export default function PostLayout({ frontMatter, children }: Props) {
+export default function PostLayout({ frontMatter, children, toc }: Props) {
   const { slug, lastmod, h1 } = frontMatter
 
   return (
     <div>
       <BlogSEO url={`${siteMetadata.siteUrl}/${slug}`} {...frontMatter} />
       <ScrollTopAndComment />
-      <article className="mx-auto max-w-2xl">
+      <article className="mx-auto">
         <div>
-          <header>
+          <header className="mx-auto max-w-2xl">
             <div className="text-center">
               <dl>
                 <div>
@@ -38,14 +41,16 @@ export default function PostLayout({ frontMatter, children }: Props) {
               </div>
             </div>
           </header>
-          <div
-            className="divide-y divide-gray-200 pb-8 dark:divide-gray-700 xl:divide-y-0 "
-            style={{ gridTemplateRows: 'auto 1fr' }}
-          >
-            <div className="divide-y divide-gray-200 dark:divide-gray-700 xl:col-span-3 xl:row-span-2 xl:pb-0">
-              <div className="prose max-w-none pt-6 pb-8 dark:prose-dark md:pt-8">{children}</div>
+          <div className="pb-8  " style={{ gridTemplateRows: 'auto 1fr' }}>
+            <div className="xl:col-span-3 xl:row-span-2 xl:pb-0">
+              <div className="lg:flex">
+                <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
+                <TOCSidebar toc={toc} asDisclosure />
+              </div>
+              <div className="mx-auto max-w-2xl">
+                <Comments frontMatter={frontMatter} />
+              </div>
             </div>
-            <Comments frontMatter={frontMatter} />
           </div>
         </div>
       </article>
