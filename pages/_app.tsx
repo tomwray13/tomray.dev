@@ -12,11 +12,20 @@ import siteMetadata from '@/data/siteMetadata'
 import Analytics from '@/components/analytics'
 import LayoutWrapper from '@/components/LayoutWrapper'
 import { ClientReload } from '@/components/ClientReload'
+import { useEffect } from 'react'
+import TagManager from 'react-gtm-module'
 
 const isDevelopment = process.env.NODE_ENV === 'development'
 const isSocket = process.env.SOCKET
 
 export default function App({ Component, pageProps }: AppProps) {
+  useEffect(() => {
+    TagManager.initialize({
+      gtmId: process.env.GTM_ID,
+      auth: process.env.GTM_AUTH,
+      preview: process.env.GTM_PREVIEW,
+    })
+  }, [])
   return (
     <ThemeProvider attribute="class" defaultTheme={siteMetadata.theme}>
       <Head>
