@@ -1,5 +1,5 @@
 const siteMetadata = {
-  title: 'Tom Ray - Learn Server Side JavaScript',
+  title: 'Tom Ray - Learn NestJS Best Practices',
   author: 'Tom Ray',
   headerTitle: 'Tom Ray',
   description: 'A blog focused on NodeJs, Typescript and other backend tools and learnings',
