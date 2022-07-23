@@ -376,7 +376,7 @@ First install the config package:
 npm i --save @nestjs/config
 ```
 
-Then in the `app.module.ts` file, import the config module:
+Then in the `app.module.ts` file, import the config module, ensuring it's at the top of the list. If you place this below the other imports, they won't have access to `process.env`.
 
 ```ts:app.module.ts
 import { CacheModule, Module } from '@nestjs/common';
@@ -386,6 +386,7 @@ import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot() // make sure you import the ConfigModule first like this
     CacheModule.register({
       isGlobal: true,
       store: redisStore,
@@ -393,14 +394,13 @@ import { ConfigModule } from '@nestjs/config';
       port: 6379,
     }),
     PokemonModule,
-    ConfigModule.forRoot() // import the config module,
   ],
 })
 export class AppModule {}
 
 ```
 
-You could now update the Redis config values by using `process.env` like this:
+You could now add `REDIS_HOST` and `REDIS_PORT` to your .env file and update the Redis config values by using `process.env` like this:
 
 ```ts:app.module.ts
 import { CacheModule, Module } from '@nestjs/common';
@@ -410,6 +410,7 @@ import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot()
     CacheModule.register({
       isGlobal: true,
       store: redisStore,
@@ -417,7 +418,6 @@ import { ConfigModule } from '@nestjs/config';
       port: process.env.REDIS_PORT,
     }),
     PokemonModule,
-    ConfigModule.forRoot()
   ],
 })
 export class AppModule {}
@@ -426,7 +426,7 @@ export class AppModule {}
 
 However, it's better practice to import them from a custom config file and using the NestJS config module.
 
-That's a little beyond this scope of this tutorial, but I'll be publishing a more in-depth tutorial on how to do this in the future.
+That's a little beyond this scope of this tutorial (you'd be using [async configuration](https://docs.nestjs.com/techniques/caching#async-configuration)), but I'll be publishing a more in-depth tutorial on how to do this in the future.
 
 If you now make sure you have an `env` file at the root of your project with the Redis config values in it and spin up your local NestJS app and Redis server, it will still work as expected, but now you can use the environment variables to configure your Redis configs.
 
@@ -484,5 +484,7 @@ In your local env file, these additional properties (`username` and `password`) 
 When you push to production though and use this Redis instance, you'll need to add the respective environment variables to connect to the Redis Labs instance.
 
 The 'Copy' button in the 1st Redis labs screenshot above contains the endpoint to access the Redis instance. It contains the port number at the end, so you'll need to remove it and use that as the `port` environment variable, and the rest of the string you can use as the `host`.
+
+Here's the [Github repo](https://github.com/tomwray13/nestjs-caching) if you'd like to check out the code.
 
 And that's it! What do you think? Let me know in the comments below.
