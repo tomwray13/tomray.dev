@@ -14,7 +14,7 @@ This is a deep-dive tutorial on how to use cache in a NestJS application.
 
 We'll start by using the NestJS cache manager which, by default, will store the cache in memory. We will then configure the cache to be stored in Redis.
 
-In this tutorial we'll use the [Pokemon API](https://pokeapi.co/) to demonstrate how to leverage some different caching strategies. Checkout the [Github repo](https://github.com/tomwray13/nestjs-caching) if you'd like to jump straight into the code!
+In this tutorial, we'll use the [Pokemon API](https://pokeapi.co/) to demonstrate how to leverage some different caching strategies. Check out the [Github repo](https://github.com/tomwray13/nestjs-caching) if you'd like to jump straight into the code!
 
 Ready? Let's go!
 
@@ -43,7 +43,7 @@ export class AppModule {}
 
 ```
 
-When interacting with any module in NestJS, you'll need to import it into respective module. For example, if you have a `Pokemon` module with a controller and service and you'd like to use caching in this module, then you'd need to import (and register) the caching module into the `pokemon.module.ts` file like we've done above in the `app.module.ts` file.
+When interacting with any module in NestJS, you'll need to import it into the respective module. For example, if you have a `Pokemon` module with a controller and service and you'd like to use caching in this module, then you'd need to import (and register) the caching module into the `pokemon.module.ts` file like we've done above in the `app.module.ts` file.
 
 Typically, caching is used across multiple modules so I prefer to leverage the `isGlobal` property in the `app.module.ts` file like this:
 
@@ -170,7 +170,7 @@ And that's it! It's worth mentioning that the `@UseInterceptors` decorator only 
 
 ## Injecting the cache manager
 
-Let's say we have a service which calls an external API and the response from this API isn't so dynamic (i.e. it doesn't change very often).
+Let's say we have a service that calls an external API and the response from this API isn't so dynamic (i.e. it doesn't change very often).
 
 We could cache the response from the external API so we don't have to call the API each time the service method is called.
 
@@ -285,9 +285,9 @@ So we've covered some different caching strategies above but the cache is stored
 
 This is where Redis comes in, the most popular persistent cache solution.
 
-To use Redis instead of the in memory cache, we'll need to update the cache module configuration and also setup a local Redis server.
+To use Redis instead of the in-memory cache, we'll need to update the cache module configuration and also set up a local Redis server.
 
-First install the relevant package:
+First, install the relevant package:
 
 ```bash
 npm install cache-manager-redis-store
@@ -358,7 +358,7 @@ Now that your local Redis server is working, if you try again to spin up your lo
 
 Your cached data will now persist to your local Redis server.
 
-You can confirm in your GUI of choice (I like [TablePlus](https://tableplus.com/)) by sending a request to your NestJS app where caching is used and you'll see the data is now persisisted:
+You can confirm in your GUI of choice (I like [TablePlus](https://tableplus.com/)) by sending a request to your NestJS app where caching is used and you'll see the data is now persisted:
 
 ![TablePlus Redis](/static/images/nestjs-caching-redis/tableplus-redis.png)
 
@@ -370,7 +370,7 @@ Our current Redis configs are limited to working just locally (as you can see ab
 
 We'll use the [NestJS config module](https://docs.nestjs.com/techniques/configuration) to take care of this.
 
-First install the config package:
+First, install the config package:
 
 ```bash
 npm i --save @nestjs/config
@@ -424,9 +424,9 @@ export class AppModule {}
 
 ```
 
-However, it's better practice to import them from a custom config file and using the NestJS config module.
+However, it's best practice to import them from a custom config file and use the NestJS config module.
 
-That's a little beyond this scope of this tutorial (you'd be using [async configuration](https://docs.nestjs.com/techniques/caching#async-configuration)), but I'll be publishing a more in-depth tutorial on how to do this in the future.
+That's a little beyond the scope of this tutorial (you'd be using [async configuration](https://docs.nestjs.com/techniques/caching#async-configuration)), but I'll be publishing a more in-depth tutorial on how to do this in the future.
 
 If you now make sure you have an `env` file at the root of your project with the Redis config values in it and spin up your local NestJS app and Redis server, it will still work as expected, but now you can use the environment variables to configure your Redis configs.
 
@@ -479,7 +479,7 @@ You'll notice above I also set the `no_ready_check` property as `true` which sol
 ReplyError: Ready check failed: NOAUTH Authentication required
 ```
 
-In your local env file, these additional properties (`username` and `password`) can be empty strings as the Docker container does not require the authentication.
+In your local env file, these additional properties (`username` and `password`) can be empty strings as the Docker container does not require authentication.
 
 When you push to production though and use this Redis instance, you'll need to add the respective environment variables to connect to the Redis Labs instance.
 
