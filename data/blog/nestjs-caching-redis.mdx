@@ -456,6 +456,7 @@ import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
+    ConfigModule.forRoot()
     CacheModule.register({
       isGlobal: true,
       store: redisStore,
@@ -466,7 +467,6 @@ import { ConfigModule } from '@nestjs/config';
       no_ready_check: true, // new property
     }),
     PokemonModule,
-    ConfigModule.forRoot()
   ],
 })
 export class AppModule {}
