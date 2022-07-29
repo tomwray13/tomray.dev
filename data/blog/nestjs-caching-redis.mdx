@@ -325,15 +325,15 @@ That's because we haven't got a local Redis server up and running!
 
 ## Use Docker compose for local Redis server
 
-Thankfully, this is super easy to do with Docker compose.
+Thankfully, this is super easy to do with Docker Compose.
 
-Add a docker compose file at the root of your project:
+Add a Docker Compose file at the root of your project:
 
 ```bash
 touch docker-compose.yml
 ```
 
-And in the Docker compose file, add the following:
+And in the Docker Compose file, add the following:
 
 ```yaml
 services:
@@ -361,6 +361,8 @@ Your cached data will now persist to your local Redis server.
 You can confirm in your GUI of choice (I like [TablePlus](https://tableplus.com/)) by sending a request to your NestJS app where caching is used and you'll see the data is now persisted:
 
 ![TablePlus Redis](/static/images/nestjs-caching-redis/tableplus-redis.png)
+
+If you're looking for a more detailed guide on how to run NestJS as a container alongside Redis, check out [this post](/nestjs-docker-compose-postgres).
 
 ## Use environment variables with the config module
 
