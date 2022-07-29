@@ -1,14 +1,18 @@
 ---
-title: NestJS + Postgres Local Development With Docker Compose
-h1: NestJS and Postgres local development with Docker Compose
+title: NestJS + Redis + Postgres Local Development With Docker Compose
+h1: NestJS, Redis and Postgres local development with Docker Compose
 date: '2022-06-12'
 lastmod: '2022-06-12'
 draft: false
-summary: Learn how to write a docker-compose file that creates a local environment with hot reloading for NestJS, Postgres and Prisma
+summary: Learn how to write a docker-compose file that creates a local environment with hot reloading for NestJS, Postgres and Redis (using Prisma as the ORM layer)
 images: ['/static/images/nestjs-docker-compose-postgres/nest-docker-compose.png']
 ---
 
-In this tutorial, we're going to use [Docker Compose](https://docs.docker.com/compose/) to create a local development environment for NestJS and Postgres with hot reloading.
+![Docker Compose set up for NestJS, Redis and Postgres](/static/images/nestjs-docker-compose-postgres/nest-docker-compose.png)
+
+In this tutorial, we're going to use [Docker Compose](https://docs.docker.com/compose/) to create a local development environment for NestJS, Redis and Postgres with hot reloading.
+
+You can check out the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma) if you'd like to look at the finished code.
 
 As a bonus step, we'll add Prisma to this setup as the ORM layer.
 
@@ -127,7 +131,6 @@ services:
       target: development
     volumes:
       - .:/usr/src/app
-      - ./usr/src/app/node_modules
     env_file:
     - .env
     # Run a command against the development stage of the image
@@ -159,33 +162,98 @@ Try editing some of your code to test out the hot reloading.
 
 What I like about this setup is that your Dockerfile handles both local development (with the use of `docker-compose`) AND builds a fully optimized, production-ready image for deployment.
 
+## Add Redis to docker-compose
+
+Before diving into the Redis docker-compose configurations, it's worth noting that this tutorial assumes you already have the CacheModule configurations setup in your NestJS app and you just need a Redis local server.
+
+For example, here's a CacheModule implementation applied globally to a NestJS app in the `app.module.ts` file:
+
+```typescript:app.module.ts
+import { CacheModule, Module } from '@nestjs/common';
+import * as redisStore from 'cache-manager-redis-store';
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+    CacheModule.register({
+      isGlobal: true,
+      store: redisStore,
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT,
+    }),
+  ],
+})
+export class AppModule {}
+```
+
+If you want to learn more about caching and how to configure Redis caching in a NestJS app, check out [this tutorial on how to use cache in NestJS](/nestjs-caching-redis).
+
+In terms of tweaking the docker-compose file to set up a local Redis server, you can make the following changes:
+
+```yaml:docker-compose.yml
+services:
+  api:
+    # ... other Nest container configs
+    depends_on:
+      - redis
+  redis: # Name of container
+    image: redis
+    ports:
+      - 6379:6379
+    volumes:
+      - redis:/data
+volumes:
+  redis:
+    driver: local
+```
+
+Here's the edits that have been made to the `docker-compose.yml` file:
+
+- Inside the `api` service, include `redis` as a `depends_on` dependency. This will ensure the the Redis container starts before the API container.
+- A new container named `redis` which uses the `redis` docker image.
+- The `volumes` configurations enable the cache to be persisted between container restarts
+
+Before spinning up the containers, you'll need to make sure the Redis environment variables have been set. In the above Redis configuration in the `app.module.ts` file, we defined the following environment variables:
+
+```env:.env
+REDIS_HOST="redis"
+REDIS_PORT="6379"
+```
+
+**Important:** If you're following along with this tutorial and are running the NestJS app as a container alongside the Redis container, then you'll need to set the `REDIS_HOST` to the name of your Redis container (`redis` in this case). If you're running the NestJS app on your local machine (with `npm run start:dev`), then you'll need to set the `REDIS_HOST` environment variable to `localhost` instead.
+
+Let's now run the command to stop and remove all running containers (this is necessary as we've made changes to the `docker-compose.yml` file)
+
+```bash
+docker-compose down
+```
+
+And then run the command to execute the docker-compose file:
+
+```bash
+docker-compose up -d
+```
+
+And that's it! You now have a local Redis server running.
+
 ## Add Postgres to docker-compose
 
-So at this stage, your NestJS app is running locally with hot reloading.
+So at this stage, your NestJS app is running locally with hot reloading and a local Redis server is also running.
 
-Let's now spin up a local Postgres server alongside the NestJS app with docker-compose.
+Let's now spin up a local Postgres server with docker-compose.
 
 To do that, we just need to tweak the `docker-compose.yml` file:
 
 ```yaml:docker-compose.yml
 services:
   api:
-    build:
-      dockerfile: Dockerfile
-      context: .
-      # Only will build development stage from our dockerfile
-      target: development
-    volumes:
-      - .:/usr/src/app
-      - ./usr/src/app/node_modules
-    env_file:
-    - .env
-    # Run a command against the development stage of the image
-    command: npm run start:dev
-    ports:
-      - 3000:3000
+    # ... other Nest container configs
     depends_on:
+      - redis
       - postgres
+  redis:
+    # ... other Redis container configs
   postgres:
     image: postgres
     restart: always
@@ -199,6 +267,8 @@ services:
       - docker-nest-postgres:/var/lib/postgresql/data
 
 volumes:
+  redis:
+    driver: local
   docker-nest-postgres:
 ```
 
@@ -229,7 +299,9 @@ And then run the command to execute the docker-compose file:
 docker-compose up -d
 ```
 
-The local Postgres server will now be running as well as the NestJS app. If you're using the [Docker extension in Visual Studio Code](https://code.visualstudio.com/docs/containers/overview), you will be able to see them both:
+The local Postgres server will now be running as well as the NestJS app. If you're using the [Docker extension in Visual Studio Code](https://code.visualstudio.com/docs/containers/overview), you will be able to see all your running containers.
+
+For example, here's NestJS and Postgres running containers:
 
 ![VScode Docker running containers](/static/images/nestjs-docker-compose-postgres/vscode-docker.png)
 
@@ -241,7 +313,7 @@ Let's dive into some of the steps to get the Docker + NestJS + Postgres + Prisma
 
 We'll be using the Dockerfile and docker-compose files from the above section as a starting point before making some tweaks below.
 
-If you'd prefer to see the finished code, take a look at the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma).
+If you'd prefer to see the finished code, take a look at the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma/tree/prisma-setup).
 
 ### Setup prisma
 
@@ -344,7 +416,7 @@ src/
     migrations/
 ```
 
-Check the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma) if you want to take a closer look.
+Check the [Github repo](https://github.com/tomwray13/nest-docker-postgres-prisma/tree/prisma-setup) if you want to take a closer look.
 
 If you've moved the prisma directory, you'll need to add the location to the `package.json` file so the Prisma CLI knows where to find your schema:
 
@@ -469,6 +541,8 @@ You might be wondering what those extra flags are in the command:
 - `-V`: Forces a fresh install of the dependencies in the container (required as we've installed new npm packages)
 - `--build`: Rebuilds the images (required as we tweaked the Dockerfile)
 
+### Apple M1 chip configs
+
 Annoyingly, if you're working on an Apple Macbook/Mac on the M1 chip, you will run into the following error when you spin up the local environment:
 
 ```
@@ -481,74 +555,64 @@ This is pretty frustrating as one of the main benefits of working with Docker lo
 
 If you're working as a solo dev and are not using a Macbook/Mac on the M1 chip, you can ignore these final paragraphs and stick to the setup described above.
 
-However, if you (or your colleagues) are working on a Macbook/Mac on the M1 chip then you'll need to update your Dockerfile to the following:
+However, if you (or your colleagues) are working on a Macbook/Mac on the M1 chip then you'll need to make the following 2 tweaks:
+
+Update the `docker-compose.yml` file to:
+
+```yaml:docker-compose.yml
+services:
+  api:
+    ...
+    volumes:
+      - .:/usr/src/app
+      - ./usr/src/app/node_modules # This is the only change
+    ...
+```
+
+This ensures that the NestJS container manages the `node_modules` folder (rather than being synced with the host machine).
+
+Annoyingly this will mean that everytime you install a new npm package on your host machine, you'll need to restart the containers to pick up the new dependencies by running:
+
+```bash
+docker-compose down
+```
+
+And then run the command:
+
+```bash
+docker-compose up -d --build -V
+```
+
+The final tweak to make is in the mutli-stage Dockerfile:
 
 ```Dockerfile:Dockerfile
 ###################
 # BUILD FOR LOCAL DEVELOPMENT
 ###################
 
+# Update to node:18 instead of node:18-alpine
 FROM node:18 As development
 
+# Required for Prisma Client to work in container
 RUN apt-get update && apt-get install -y openssl
 
-# Create app directory
 WORKDIR /usr/src/app
 
-# Copy application dependency manifests to the container image.
-# A wildcard is used to ensure copying both package.json AND package-lock.json (when available).
-# Copying this first prevents re-running npm install on every code change.
 COPY --chown=node:node package*.json ./
 
-# Install app dependencies using the `npm ci` command instead of `npm install`
 RUN npm ci
 
-# Bundle app source
 COPY --chown=node:node . .
 
 RUN npm run prisma:generate
 
-# Use the node user from the image (instead of the root user)
 USER node
 
 ###################
 # BUILD FOR PRODUCTION
 ###################
 
-FROM node:18-alpine As build
-
-WORKDIR /usr/src/app
-
-COPY --chown=node:node package*.json ./
-
-# In order to run `npm run build` we need access to the Nest CLI which is a dev dependency. In the previous development stage we ran `npm ci` which installed all dependencies, so we can copy over the node_modules directory from the development image
-COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
-
-COPY --chown=node:node . .
-
-# Run the build command which creates the production bundle
-RUN npm run build
-
-# Set NODE_ENV environment variable
-ENV NODE_ENV production
-
-# Running `npm ci` removes the existing node_modules directory and passing in --only=production ensures that only the production dependencies are installed. This ensures that the node_modules directory is as optimized as possible
-RUN npm ci --only=production && npm cache clean --force
-
-USER node
-
-###################
-# PRODUCTION
-###################
-
-FROM node:18-alpine As production
-
-# Copy the bundled code from the build stage to the production image
-COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
-COPY --chown=node:node --from=build /usr/src/app/dist ./dist
-
-# Start the server using the production build
-CMD [ "node", "dist/main.js" ]
+# Remaining multi-build steps do not change from the original Dockerfile above
 ```
 
 The only thing tweaked to the Dockerfile is using `node:18` as the base image instead of `node:18-alpine` and also including `RUN apt-get update && apt-get install -y openssl`.
