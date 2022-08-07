@@ -1,0 +1,322 @@
+---
+title: 'Ultimate Guide: NestJS Config & Environment Variables [2022]'
+h1: 'NestJS Config Module: Using environment variables'
+date: '2022-08-07'
+lastmod: '2022-08-07'
+draft: false
+summary: Learn how to use environment variables (and other configuration values) in your NestJS projects with the Config Module.
+images: ['/static/images/nestjs-config/nestjs-config.png']
+---
+
+![How to use environment variables in NestJS with the Config Module](/static/images/nestjs-config/nestjs-config.png)
+
+Sooner or later you'll need to use environment variables in your NestJS app.
+
+This tutorial covers exactly this by using the [NestJS Config Module](https://docs.nestjs.com/techniques/configuration) to use env files and their respective environment variables.
+
+We'll start with a minimal setup that will allow you to use `process.env` anywhere in your NestJS app, then progress to a more advanced setup using custom configuration files.
+
+Ready? Let's go!
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## Install dependencies
+
+In a classic NodeJS project, you'd need to install the [dotenv](https://www.npmjs.com/package/dotenv) package to use environment variables.
+
+NestJS comes with a built-in config module (that uses the dotenv package under the hood) that you can use to read environment variables.
+
+```bash
+npm i --save @nestjs/config
+```
+
+## Add the Config Module configuration
+
+With the package installed, we can now use the config module.
+
+Import it into the root `AppModule` along with the `forRoot()` static method:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+  ],
+})
+export class AppModule {}
+
+```
+
+**Please note:** As you add more imports to your `app.module.ts` file, keep the `ConfigModule` as the first import. Otherwise the other imports won't have access to the environment variables.
+
+## You can now use `process.env`
+
+Assuming you're using the default `.env` file in your project, you'll now have access to your environment variables by using `process.env` anywhere in your NestJS app.
+
+For example, you could use an environment variable to dynamically set the port of your app (this is required if you're [deploying your NestJS app to Cloud Run](/deploy-nestjs-cloud-run#configure-a-port-environment-variable)) with a fallback value:
+
+```typescript:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(process.env.PORT ? parseInt(process.env.PORT) : 3000);
+}
+bootstrap();
+
+```
+
+While this approach works, it doesn't offer any type safety. It also means if you use a fallback (like in the example above), everytime you use the environment variable you'd need to define the fallback again. We'll go into a more advanced approach in the next section which will cover these challenges.
+
+## Using custom configuration files
+
+Instead of using `process.env` in your NestJS app whenever you need to access an environment variable, you can instead use custom configuration files.
+
+[Laravel](https://laravel.com/docs/9.x/configuration) uses a very similar approach where you have custom configuration files inside a `config` directory which point to environment variables.
+
+For example, here's a configuration file inside a `config` directory:
+
+```typescript:config/configuration.ts
+export default () => ({
+  port: parseInt(process.env.PORT) || 3000,
+  pokemonService: {
+    apiKey: process.env.POKEMEON_KEY,
+  }
+});
+```
+
+You will need to import this configuration file into the `ConfigModule` by using the `load` property:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from './config/configuration';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      load: [config]
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+To now use the values set in the configuration file in one of the modules in our NestJS app, we'd need to import the `ConfigModule` (just like you would with any provider):
+
+```typescript:feature.module.ts
+@Module({
+  imports: [ConfigModule],
+  // ...
+})
+```
+
+That being said, I prefer to set the `isGlobal` property to true in the `ConfigModule` in `app.module.ts` so that it's available everywhere in the app (and I don't need to import the Config Module everytime).
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from './config/configuration';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [config]
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+By the way, if you'd prefer to make your configuration files more granular and split them into different files, you can do that as well.
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import base from './config/base.config';
+import database from './config/database.config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [base, database] // split your configuration files into separate files
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+Let's finally get into actually using the values set in our configuration file(s)!
+
+Using this configuration file as an example:
+
+```typescript:config/configuration.ts
+export default () => ({
+  port: parseInt(process.env.PORT) || 3000,
+  pokemonService: {
+    apiKey: process.env.POKEMEON_KEY,
+  }
+});
+```
+
+You'll need to inject the `ConfigService` using constructor injection (same as all other services you import), and then you'll have access to the `configService.get` method as shown below:
+
+```typescript:feature.service.ts
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class FeatureService {
+
+  constructor(private readonly configService: ConfigService) {}
+
+  someFunction(param: string) {
+    const port = this.configService.get<number>('port');
+      // ...
+  }
+
+  someOtherFunction(param: string) {
+    const pokemonAPIKey = this.configService.get<string>('pokemonService.apiKey');
+      // ...
+  }
+}
+
+```
+
+The above code works great. However, what happens if you forget to set the environment variables in your env file?
+
+If your TSconfig file has the `strictNullChecks` property set to `true`, then the above code would show a compiler error because the `configService.get` method would return `undefined` if the environment variable was not set.
+
+To solve this, we can leverage a best practice:
+
+Throw an exception during the server startup if you're missing required environment variables.
+
+We'll cover that in the next section.
+
+## Validating environment variables
+
+To solve the challenge described in the previous section, the NestJS docs suggest validation using a [schema method](https://docs.nestjs.com/techniques/configuration#schema-validation) and a [custom validate function](https://docs.nestjs.com/techniques/configuration#custom-validate-function). They're worth checking out.
+
+Another technique is to throw an error in the constructor of the class if the configuration values you need are not what you expect.
+
+Here's how the example from the previous section would look implementing this approach:
+
+```typescript:feature.service.ts
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class FeatureService {
+  private port: number;
+  private pokemonAPIKey: string;
+
+  constructor(private readonly configService: ConfigService) {
+    const port = this.configService.get<number>('port');
+    const pokemonAPIKey = this.configService.get<string>('pokemonService.apiKey');
+
+    if (!port || !pokemonAPIKey) {
+      throw new Error(`Environment variables are missing`);
+    }
+
+    this.port = port;
+    this.pokemonAPIKey = pokemonAPIKey;
+  }
+
+  someFunction(param: string) {
+    this.port // you now have access to the port variable
+  }
+
+  someOtherFunction(param: string) {
+    this.pokemonAPIKey // you now have access to the pokemonAPIKey variable
+  }
+}
+
+```
+
+In the constructor, if either of the environment variables are missing, an error is thrown.
+
+I quite like this approach for the following reasons:
+
+- If any of the environment variables are missing, the server will fail the startup process including the error message (helpful for debugging when deploying / other developers getting the project setup locally)
+- It feels very contextual. When a developer is looking at the code, it's clear what these private fields are and that they will never be `undefined` when they're used in the methods.
+
+What do you think? I'd be interested to know your approach to validating these configuration values. Let me know in the comments below.
+
+## Other practical use-cases of the Config Module
+
+There might be other variables which are not secrets (i.e. so wouldn't be set in the `.env` file) that should be shared across your application.
+
+For example, in a recent project I wanted to setup some Regex validation for a UK postcode. This validation was required in a few places, so I didn't want duplicate code.
+
+So I created a custom configuration file called `regex.config.ts`:
+
+```typescript:config/regex.config.ts
+export default () => ({
+  regex: {
+    postcode: new RegExp(/^[a-z]{1,2}\d[a-z\d]?\s*\d[a-z]{2}$/i),
+    // other regex rules here...
+  },
+});
+
+```
+
+Ensured it was imported correctly:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import base from './config/base.config';
+import database from './config/database.config';
+import regex from './config/regex.config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [base, database, regex]
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+And then used this value in different providers:
+
+```typescript:feature.service.ts
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class FeatureService {
+  private postcodeRegex: RegExp;
+
+  constructor(private readonly configService: ConfigService) {
+    const postcodeRegex = this.configService.get<RegExp>('regex.postcode');
+
+    if (!postcodeRegex) {
+      throw new Error(`Regex postcode validation required`);
+    }
+
+    this.postcodeRegex = postcodeRegex;
+  }
+
+  someFunction(postcode: string) {
+    if (this.postcodeRegex.test(postcode)) {
+      // ...
+    }
+  }
+
+}
+
+```
+
+Let me know what you think in the comments below!
