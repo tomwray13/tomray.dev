@@ -62,16 +62,16 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                     <h3 className="mb-2 font-bold">Share</h3>
                     <div className="space-x-2">
                       <TwitterShareButton url={url} title={h1}>
-                        <TwitterIcon size={32} round />
+                        <TwitterIcon size={32} round id="social-twitter" />
                       </TwitterShareButton>
                       <RedditShareButton url={url} title={h1}>
-                        <RedditIcon size={32} round />
+                        <RedditIcon size={32} round id="social-reddit" />
                       </RedditShareButton>
                       <LinkedinShareButton url={url}>
-                        <LinkedinIcon size={32} round />
+                        <LinkedinIcon size={32} round id="social-linkedin" />
                       </LinkedinShareButton>
                       <EmailShareButton url={url} subject={'Next Share'} body="body">
-                        <EmailIcon size={32} round />
+                        <EmailIcon size={32} round id="social-email" />
                       </EmailShareButton>
                     </div>
                   </div>
