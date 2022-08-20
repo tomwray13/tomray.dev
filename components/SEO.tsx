@@ -16,6 +16,7 @@ interface CommonSEOProps {
       }[]
   twImage: string
   canonicalUrl?: string
+  isHiddenFromSearchEngines?: boolean
 }
 
 const CommonSEO = ({
@@ -25,12 +26,16 @@ const CommonSEO = ({
   ogImage,
   twImage,
   canonicalUrl,
+  isHiddenFromSearchEngines,
 }: CommonSEOProps) => {
   const router = useRouter()
   return (
     <Head>
       <title>{title}</title>
-      <meta name="robots" content="follow, index" />
+      <meta
+        name="robots"
+        content={isHiddenFromSearchEngines ? 'noindex, follow' : 'follow, index'}
+      />
       <meta name="description" content={description} />
       <meta property="og:url" content={`${siteMetadata.siteUrl}${router.asPath}`} />
       <meta property="og:type" content={ogType} />
@@ -58,9 +63,10 @@ const CommonSEO = ({
 interface PageSEOProps {
   title: string
   description: string
+  isHiddenFromSearchEngines?: boolean
 }
 
-export const PageSEO = ({ title, description }: PageSEOProps) => {
+export const PageSEO = ({ title, description, isHiddenFromSearchEngines }: PageSEOProps) => {
   const ogImageUrl = siteMetadata.siteUrl + siteMetadata.socialBanner
   const twImageUrl = siteMetadata.siteUrl + siteMetadata.socialBanner
   return (
@@ -70,6 +76,7 @@ export const PageSEO = ({ title, description }: PageSEOProps) => {
       ogType="website"
       ogImage={ogImageUrl}
       twImage={twImageUrl}
+      isHiddenFromSearchEngines={isHiddenFromSearchEngines}
     />
   )
 }

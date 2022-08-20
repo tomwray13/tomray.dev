@@ -8,7 +8,7 @@ summary: A detailed tutorial with NestJS examples on how to implement in-memory 
 images: ['/static/images/nestjs-caching-redis/nestjs-caching-redis.png']
 ---
 
-![How to build a NestJS Docker image for production](/static/images/nestjs-caching-redis/nestjs-caching-redis.png)
+![How to use cache in NestJS with Redis](/static/images/nestjs-caching-redis/nestjs-caching-redis.png)
 
 This is a deep-dive tutorial on how to use cache in a NestJS application.
 
@@ -370,7 +370,7 @@ Okay so we've got it working locally, but what about deploying our application t
 
 Our current Redis configs are limited to working just locally (as you can see above, the host points to `localhost`). To setup the configs for multiple environments, we will of course use environment variables.
 
-We'll use the [NestJS config module](https://docs.nestjs.com/techniques/configuration) to take care of this.
+We'll use the [NestJS config module](/nestjs-config) to take care of this.
 
 First, install the config package:
 
@@ -426,7 +426,7 @@ export class AppModule {}
 
 ```
 
-However, it's best practice to import them from a custom config file and use the NestJS config module.
+However, it's best practice to import them from a custom config file and use the [NestJS config module](/nestjs-config).
 
 That's a little beyond the scope of this tutorial (you'd be using [async configuration](https://docs.nestjs.com/techniques/caching#async-configuration)), but I'll be publishing a more in-depth tutorial on how to do this in the future.
 

@@ -57,22 +57,22 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
             <div className="xl:col-span-3 xl:row-span-2 xl:pb-0">
               <div className="lg:flex">
                 <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
-                <div className="sticky top-0 hidden h-screen w-full pt-6 pb-8 pl-6 lg:block xl:pl-10">
+                <div className="sticky top-0 hidden h-screen pt-6 pb-8 pl-6 lg:block xl:pl-10">
                   <TOCSidebar toc={toc} asDisclosure />
                   <div>
                     <h3 className="mb-2 font-bold">Share</h3>
                     <div className="space-x-2">
                       <TwitterShareButton url={url} title={h1}>
-                        <TwitterIcon size={32} round />
+                        <TwitterIcon size={32} round id="social-twitter" />
                       </TwitterShareButton>
                       <RedditShareButton url={url} title={h1}>
-                        <RedditIcon size={32} round />
+                        <RedditIcon size={32} round id="social-reddit" />
                       </RedditShareButton>
                       <LinkedinShareButton url={url}>
-                        <LinkedinIcon size={32} round />
+                        <LinkedinIcon size={32} round id="social-linkedin" />
                       </LinkedinShareButton>
                       <EmailShareButton url={url} subject={'Next Share'} body="body">
-                        <EmailIcon size={32} round />
+                        <EmailIcon size={32} round id="social-email" />
                       </EmailShareButton>
                     </div>
                   </div>
