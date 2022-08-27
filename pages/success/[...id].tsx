@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import { PageSEO } from '@/components/SEO'
 import { GetStaticPropsContext } from 'next'
+import { useRouter } from 'next/router'
 
 export async function getStaticPaths() {
   const pages = ['nestjs-cheat-sheet']
@@ -33,20 +34,17 @@ export async function getStaticProps(context: GetStaticPropsContext) {
 }
 
 export default function Almost() {
+  const router = useRouter()
+  if (typeof window !== 'undefined') {
+    const { id } = router.query
+    router.push(`/resource/${id[0]}`)
+  }
   return (
     <>
-      <PageSEO
-        title="Confirm your email address"
-        description="Please confirm your email address"
-        isHiddenFromSearchEngines
-      />
+      <PageSEO title="Loading..." description="Loading up resource." isHiddenFromSearchEngines />
       <div className="flex flex-col items-center">
-        <img src="/static/gifs/mail.gif" alt="Check your email" className="-mb-8 h-64 dark:mb-8" />
-        <h1 className="text-4xl">Check your email</h1>
-        <p className=" max-w-lg text-center">
-          If you can't see the email, please check your span/junk folder. Sometimes the email can
-          end up there by mistake.
-        </p>
+        <img src="/static/icons/tail-spin.svg" alt="NestJS logo" className="mb-16 h-32" />
+        <h1 className="text-4xl">Loading...</h1>
       </div>
     </>
   )
