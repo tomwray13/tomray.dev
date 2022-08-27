@@ -8,8 +8,6 @@ summary: Learn how to use the NestJS logger to add automatic HTTP request loggin
 images: ['/static/images/nestjs-logging/nest-logger.png']
 ---
 
-import Magnet from '@/components/Magnet'
-
 ![How to use the NestJS Logger](/static/images/nestjs-logging/nest-logger.png)
 
 In this tutorial, we're going to do a deep dive into the NestJS logger.
@@ -161,8 +159,6 @@ The above wildcard `*` means that all routes will be logged, but you could tweak
 The NestJS built-in logger is cool for local development, but the main downside is that it's not formatted in JSON by default, making it more difficult to do analysis and troubleshooting in your cloud logging infrastructure.
 
 In the next sections, we'll go through the steps to setup Pino in the NestJS logger (which has built-in JSON logging).
-
-<Magnet />
 
 ## NestJS Logger with Pino
 
