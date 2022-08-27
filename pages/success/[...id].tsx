@@ -37,11 +37,11 @@ export default function Almost() {
   const router = useRouter()
   if (typeof window !== 'undefined') {
     const { id } = router.query
-    router.push(`/resource/${id[0]}`)
+    router.push(`/resources/${id[0]}`)
   }
   return (
     <>
-      <PageSEO title="Loading..." description="Loading up resource." isHiddenFromSearchEngines />
+      <PageSEO title="Loading..." description="Loading up resource." isHiddenFromSearch />
       <div className="flex flex-col items-center">
         <img src="/static/icons/tail-spin.svg" alt="NestJS logo" className="mb-16 h-32" />
         <h1 className="text-4xl">Loading...</h1>

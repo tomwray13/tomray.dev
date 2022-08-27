@@ -38,7 +38,7 @@ export default function Almost() {
       <PageSEO
         title="Confirm your email address"
         description="Please confirm your email address"
-        isHiddenFromSearchEngines
+        isHiddenFromSearch
       />
       <div className="flex flex-col items-center">
         <img src="/static/gifs/mail.gif" alt="Check your email" className="-mb-8 h-64 dark:mb-8" />
