@@ -369,6 +369,10 @@ app.useLogger(app.get(Logger));
 app.useGlobalInterceptors(new LoggerErrorInterceptor());
 ```
 
+### Logs in production
+
+While prettifying the logs in our local environment is useful, on production it's better to have all logs in JSON format.
+
 ### Conclusion on using Pino in NestJS
 
 Using this Pino package for NestJS logging is great because:

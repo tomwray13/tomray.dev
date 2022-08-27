@@ -18,6 +18,7 @@ import {
   TwitterIcon,
   TwitterShareButton,
 } from 'next-share'
+import Magnet from '@/components/Magnet'
 
 interface Props {
   frontMatter: PostFrontMatter
@@ -78,6 +79,7 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                 </div>
               </div>
               <div className="mx-auto max-w-2xl">
+                {/* <Magnet /> */}
                 <Comments frontMatter={frontMatter} />
               </div>
             </div>
