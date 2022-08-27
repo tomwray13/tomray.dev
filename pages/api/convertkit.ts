@@ -2,21 +2,18 @@ import { NextApiRequest, NextApiResponse } from 'next'
 
 /* eslint-disable import/no-anonymous-default-export */
 export default async (req: NextApiRequest, res: NextApiResponse) => {
-  const { email } = req.body
+  const { email, formId } = req.body
 
   if (!email) {
     return res.status(400).json({ error: 'Email is required' })
   }
 
   try {
-    const FORM_ID = process.env.CONVERTKIT_FORM_ID
     const API_KEY = process.env.CONVERTKIT_API_KEY
-    const API_URL = process.env.CONVERTKIT_API_URL
 
     // Send request to ConvertKit
     const data = { email, api_key: API_KEY }
-
-    const response = await fetch(`${API_URL}forms/${FORM_ID}/subscribe`, {
+    const response = await fetch(`https://api.convertkit.com/v3/forms/${formId}/subscribe`, {
       body: JSON.stringify(data),
       headers: {
         'Content-Type': 'application/json',
