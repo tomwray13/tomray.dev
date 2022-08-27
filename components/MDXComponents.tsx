@@ -6,6 +6,7 @@ import CustomLink from './Link'
 import TOCInline from './TOCInline'
 import Pre from './Pre'
 import { BlogNewsletterForm } from './NewsletterForm'
+import Magnet from './Magnet'
 
 const Wrapper: React.ComponentType<{ layout: string }> = ({ layout, ...rest }) => {
   const Layout = require(`../layouts/${layout}`).default
@@ -21,6 +22,7 @@ export const MDXComponents: ComponentMap = {
   wrapper: Wrapper,
   //@ts-ignore
   BlogNewsletterForm,
+  Magnet,
 }
 
 interface Props {

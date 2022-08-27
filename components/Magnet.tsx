@@ -1,25 +1,23 @@
+/* eslint-disable @next/next/no-img-element */
+import ConvertKitForm from './ConvertKitForm'
+
 export default function Magnet() {
   return (
-    <div className="my-8 flex rounded-md border bg-gray-100 p-6">
-      <img src="static/images/nestjs.png" alt="NestJS logo" className="mr-6 h-20" />
+    <div className="my-8 flex flex-col items-center rounded-md border bg-gray-100 p-6 sm:flex-row sm:items-start">
+      <img
+        src="static/images/nestjs.png"
+        alt="NestJS logo"
+        className="mt-0 mb-4 h-20 sm:mr-6 sm:h-20"
+      />
       <div>
-        <span className="text-xl font-bold">Get Advanced NestJS Tips, Techniques & Strategies</span>
-        <span className="flex flex-col">
-          Enjoy this post? Download this cheat sheet and optimize the underperforming posts and
-          pages on your website to increase your rank, link clicks, and leads.
+        <span className="mb-1 inline-block text-xl font-bold dark:text-gray-800">
+          Get Free NestJS Cheat Sheet
         </span>
-        <div className="mt-4">
-          <input
-            type="email"
-            name="magnet"
-            id="magnet"
-            className="mr-2 rounded-md"
-            placeholder="e.g. elon@tesla.com"
-          />
-          <button className="rounded-md bg-green-600 px-4 py-2 font-bold text-white">
-            Get cheat sheet now
-          </button>
-        </div>
+        <span className="flex flex-col dark:text-gray-800">
+          Get access to my free NestJS cheat sheet and learn tips and advanced techniques to improve
+          your developer workflow and NestJS applications in production.
+        </span>
+        <ConvertKitForm />
       </div>
     </div>
   )
