@@ -117,6 +117,7 @@ export const BlogSEO = ({
   url,
   images = [],
   canonicalUrl,
+  isHiddenFromSearch,
 }: BlogSeoProps) => {
   const publishedAt = new Date(date).toISOString()
   const modifiedAt = new Date(lastmod || date).toISOString()
@@ -183,6 +184,7 @@ export const BlogSEO = ({
         ogImage={featuredImages}
         twImage={twImageUrl}
         canonicalUrl={canonicalUrl}
+        isHiddenFromSearch={isHiddenFromSearch}
       />
       <Head>
         {date && <meta property="article:published_time" content={publishedAt} />}
