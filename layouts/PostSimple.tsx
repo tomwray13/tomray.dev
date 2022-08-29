@@ -79,7 +79,7 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                 </div>
               </div>
               <div className="mx-auto max-w-2xl">
-                {/* <Magnet /> */}
+                <Magnet />
                 <Comments frontMatter={frontMatter} />
               </div>
             </div>
