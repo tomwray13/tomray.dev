@@ -1,0 +1,228 @@
+---
+title: 'NestJS Cheat Sheet'
+h1: NestJS Cheat Sheet
+date: '2022-08-27'
+lastmod: '2022-08-27'
+draft: false
+summary: NestJS Cheat Sheet.
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: true
+---
+
+![How to build a NestJS Docker image for production](/static/images/nestjs-cheat-sheet/banner.png)
+
+Hey there!
+
+Thanks for checking out my NestJS cheat sheet.
+
+I've made this cheat sheet in blog post format so I can easily make updates and add contributions moving forward.
+
+Speaking of which - if you have any suggestions I'd love to hear them! Please add them in the comments below 🙏.
+
+Ready? Let's dive in!
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## ☝️ Turn on strict Typescript configs
+
+Out of the box, the default NestJS Typescript config set up is:
+
+```json:tsconfig.json
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "es2017",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false
+  }
+}
+
+```
+
+It's widely seen as best practice to enforce strict mode in your Typescript configs to get the full benefits of Typescript.
+
+[This article](https://maxkovalevsky.com/what-is-strict-mode-in-typescript-and-why-and-when-you-should-use-it/) from Max does a great job of explaining what strict mode is and why you should use it.
+
+Strict mode is actually made up of 7 configuration options which are all switched on if strict mode is set.
+
+Check out [this article](https://dev.to/jsdev/strict-mode-typescript-j8p) for some examples on what each configuration gives you incase you want to toggle some specific ones on or off.
+
+The default `tsconfig.json` file from NestJS includes 3 of these (all set to `false` by default) - let's replace them with setting strict mode on:
+
+```json:tsconfig.json
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "es2017",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    // "strictNullChecks": false,
+    // "noImplicitAny": false,
+    // "strictBindCallApply": false,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+    "strict": true, // strict mode on!
+  }
+}
+
+```
+
+I also like to include a couple of other configs:
+
+`noUnusedLocals`: Report errors on unused local variables (e.g. you declate a variable with `const` and then never user it)
+
+`noUncheckedIndexedAccess`: Prevents runtime errors caused by unexpected undefined values. This one's best explained by an example:
+
+```ts
+// define an array
+const numbers = [1, 2, 3]
+
+// access array with index 3
+const example = numbers[3]
+
+// this will cause a runtime error because index 3 does not exist!
+console.log(example.toFixed(2))
+return 'Hello World!'
+```
+
+By switching on `noUncheckedIndexedAccess`, you will be forced (you'll see the red squigly lines in your IDE) to handle the `undefined` scenario which will help prevent runtime errors. Set this in your tsconfig and thank yourself later 😉.
+
+Putting it all together, here's the TSconfig file:
+
+```json:tsconfig.json
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "es2017",
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": "./",
+    "incremental": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUncheckedIndexedAccess": true
+
+  }
+}
+
+```
+
+## 🔒 Add HTTP header security
+
+Out of the box, NestJS uses the default HTTP headers which can open you up to security vulnerabilities.
+
+Thankfully, that's why [Helmet](https://helmetjs.github.io/) exists - to increase the HTTP header security and prevent common exposures to security risks.
+
+It's also super easy to install in a NestJS app too.
+
+If you're running an Express server:
+
+```shell
+npm i --save helmet
+```
+
+And then apply the package as global middleware:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import helmet from 'helmet';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.use(helmet());
+  ... // other configs
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+If you're running a Fastify server:
+
+```shell
+npm i --save @fastify/helmet
+```
+
+And then apply the package as global middleware:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter()
+  );
+  await app.register(helmet)
+  ... // other configs
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+## 🔥 Deploy with a command to Cloud Run
+
+While a more comprehensive CI/CD workflow will be required as a project grows in complexity, for prototyping I've found it really helpful to deploy on the fly to [Cloud Run](https://cloud.google.com/run) using the GCP CLI.
+
+There are a couple of prerequisites:
+
+1. Having a [production ready Dockerfile](/nestjs-docker-production)
+2. Having the Google Cloud Platform CLI installed on your machine (and a GCP account)
+
+With the above just run this in the root of your project:
+
+```bash
+gcloud run deploy
+```
+
+The first delpoyment will take you through a few set up steps, but then after that it'll be a breeze everytime you need to push up a change 😎.
+
+For a more detailed deep-dive on the above set up and deploying to Cloud Run, check out [this post](/deploy-nestjs-cloud-run).
+
+## 💸 Free caching with Redis Labs
+
+When considering which cloud caching provider to use, take a look at [Redis Labs](https://redis.com/).
+
+They have a free plan that gives you a 30MB caching service.
+
+You only get one Redis service per account, but it's super quick and easy to get up-and running.
+
+This free plan likely won't be enough for production - but you can easily upgrade to an appropiate plan.
+
+[Heroku](https://elements.heroku.com/addons/heroku-redis) also has a free plan with a 25MB memory limit (slightly less than Redis Labs above).
