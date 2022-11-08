@@ -1,0 +1,49 @@
+---
+title: 'Ultimate Guide: NestJS Unit Testing'
+h1: 'NestJS Unit Testing'
+date: '2022-11-20'
+lastmod: '2022-11-20'
+draft: true
+summary: NestJS Unit Testing
+images: ['']
+---
+
+Intro
+
+<Magnet />
+
+<TOCInline toc={props.toc} asDisclosure />
+
+## What is unit testing?
+
+A unit test is an automation you have in your code that verifies a small piece of behaviour.
+
+Implemented correctly, unit testing can have an excellent return on investment.
+
+By adding unit tests, you're investing in your project so that the future version of yourself (or other colleagues working on the project) can operate with speed and confidence as you add new features or refactor existing code.
+
+The unit test should also be isolated - meaning the test doesn't rely on other dependencies to work.
+
+In my opinion, handling this isolation challenge is the most difficult part of writing unit tests in NestJS, so we'll cover plenty of examples in this tutorial.
+
+## What makes a good unit test in NestJS?
+
+Once you understand what unit testing is, I think it's fair to say the majority of developers think they're an excellent idea.
+
+However, unit testing implemented poorly can become more of a liability than an asset.
+
+Entire books have been written on this subject (), so further reading is definitely required to form your own opinions on what makes a good unit test.
+
+That being said, here are a few rules I follow which will be implemented in the examples throughout this tutorial:
+
+- Focus on the end result / behaviour
+- Avoid testing implementation details
+- Apply mocking to non-mutable dependencies
+
+Let's dive into some examples!
+
+## A simple example (no dependencies)
+
+## Mocking HTTP requests
+
+## How to unit test Pipes in NestJS
