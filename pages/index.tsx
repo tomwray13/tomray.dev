@@ -1,3 +1,4 @@
+import ConvertKitForm from '@/components/ConvertKitForm'
 import Link from '@/components/Link'
 import { PageSEO } from '@/components/SEO'
 import siteMetadata from '@/data/siteMetadata'
@@ -18,6 +19,26 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
   return (
     <>
       <PageSEO title={siteMetadata.title} description={siteMetadata.description} />
+      <div>
+        <h3 className="polka full-screen mb-8">
+          <div className="mx-auto max-w-2xl px-4 sm:px-6 xl:px-0">
+            <div className="py-14">
+              <div>
+                <div>
+                  <h1 className="mb-2 text-left text-3xl dark:text-gray-900">
+                    Get Free NestJS Cheat Sheet
+                  </h1>
+                </div>
+                <div className="prose max-w-none text-gray-900 dark:text-gray-700">
+                  Get access to my free NestJS cheat sheet and learn tips and advanced techniques to
+                  improve your developer workflow and NestJS applications in production.
+                </div>
+              </div>
+              <ConvertKitForm />
+            </div>
+          </div>
+        </h3>
+      </div>
       <div className="flex justify-center">
         <ul className="max-w-2xl">
           {!posts.length && 'No posts found.'}
@@ -29,7 +50,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
                   <div className="xl:items-baseline xl:space-y-0">
                     <dl className="mb-2">
                       <dt className="sr-only">Published on</dt>
-                      <dd className="text-sm leading-6 dark:text-slate-400 lg:right-full lg:mr-8 lg:whitespace-nowrap">
+                      <dd className="text-sm leading-6 text-gray-600 dark:text-slate-400 lg:right-full lg:mr-8 lg:whitespace-nowrap">
                         <time dateTime={lastmod}>{formatDate(lastmod)}</time>
                       </dd>
                     </dl>
@@ -37,12 +58,12 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
                       <div className="space-y-2">
                         <div>
                           <h2 className="text-2xl font-bold leading-8 tracking-tight">
-                            <Link href={`/${slug}`} className="text-gray-900 dark:text-gray-100">
+                            <Link href={`/${slug}`} className="text-primary-500 dark:text-gray-100">
                               {h1}
                             </Link>
                           </h2>
                         </div>
-                        <div className="prose max-w-none text-gray-500 dark:text-gray-400">
+                        <div className="prose max-w-none text-gray-600 dark:text-gray-400">
                           {summary}
                         </div>
                       </div>

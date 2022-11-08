@@ -79,7 +79,7 @@ const TOCSidebar = ({
           key={heading.value}
           className={`${heading.depth >= indentDepth && 'ml-6 list-disc'} ${
             heading.url.slice(1) === activeId
-              ? `font-semibold text-blue-500 opacity-100`
+              ? `font-semibold text-primary-500 opacity-100`
               : ` opacity-70`
           } mb-2 text-sm hover:underline hover:opacity-100`}
         >

@@ -25,19 +25,19 @@ export default function ConvertKitForm() {
     }
   }
   return (
-    <form className="mt-4 grid grid-cols-3 gap-1" onSubmit={handleSubmit}>
+    <form className="mt-4 grid max-w-lg grid-cols-3 gap-1" onSubmit={handleSubmit}>
       <input
         type="email"
         name="magnet"
         id="magnet"
-        className="col-span-3 mb-2 rounded-md text-gray-800 sm:col-span-2 sm:mb-0 sm:mr-2"
-        placeholder="e.g. elon@tesla.com"
+        className="col-span-3 mb-2 rounded-md text-gray-800 focus:ring-primary-500 sm:col-span-2 sm:mb-0 sm:mr-2"
+        placeholder="e.g. johnsmith@gmail.com"
         value={email}
         onChange={(event) => setEmail(event.target.value)}
       />
       <button
         type="submit"
-        className="col-span-3 rounded-md bg-green-600 px-4 py-2 font-bold text-white sm:col-span-1"
+        className="col-span-3 rounded-md bg-green-500 px-4 py-2 font-bold text-white sm:col-span-1"
       >
         {loading ? 'Loading...' : 'Get cheat sheet'}
       </button>

@@ -3,7 +3,7 @@ import ConvertKitForm from './ConvertKitForm'
 
 export default function Magnet() {
   return (
-    <div className="my-8 flex flex-col items-center rounded-md border bg-gray-100 p-6 sm:flex-row sm:items-start">
+    <div className="polka my-8 flex flex-col items-center rounded-md p-6 sm:flex-row sm:items-start ">
       <img
         src="static/images/nestjs.png"
         alt="NestJS logo"

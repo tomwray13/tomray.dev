@@ -8,7 +8,7 @@
   }
 
   h1 {
-    @apply mb-6 text-center text-4xl font-bold md:text-5xl;
+    @apply mb-6 text-center text-4xl font-extrabold leading-9 tracking-tight sm:text-4xl sm:leading-10 md:text-5xl md:leading-14;
   }
   h2 {
     @apply text-2xl font-semibold;
@@ -42,4 +42,21 @@ input:-webkit-autofill:focus {
 
 ::marker {
   @apply text-gray-300 dark:text-gray-500;
+}
+
+.polka {
+  background-color: #e5e5f700;
+  opacity: 0.8;
+  background-image: radial-gradient(#444cf773 0.5px, #e5e5f761 0.5px);
+  background-size: 10px 10px;
+  @apply opacity-100 dark:bg-white;
+}
+
+.full-screen {
+  width: 100vw;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  margin-left: -50vw;
+  margin-right: -50vw;
 }

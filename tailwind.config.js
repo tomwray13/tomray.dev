@@ -32,14 +32,24 @@ module.exports = {
         sans: ['InterVariable', ...defaultTheme.fontFamily.sans],
       },
       colors: {
-        primary: colors.blue,
+        primary: {
+          400: '#596BC3',
+          500: '#596BC3',
+          600: '#596BC3',
+        },
+        green: {
+          200: '#86d87224',
+          400: '#7DBA6F',
+          500: '#7DBA6F',
+          600: '#7DBA6F',
+        },
         //@ts-ignore
         gray: colors.neutral, // TODO: Remove ts-ignore after tw types gets updated to v3
       },
       typography: (theme) => ({
         DEFAULT: {
           css: {
-            color: theme('colors.gray.700'),
+            color: theme('colors.gray.800'),
             a: {
               color: theme('colors.primary.600'),
               '&:hover': {
@@ -50,7 +60,7 @@ module.exports = {
             h1: {
               fontWeight: '700',
               letterSpacing: theme('letterSpacing.tight'),
-              color: theme('colors.gray.900'),
+              color: theme('colors.primary.500'),
             },
             h2: {
               fontWeight: '700',
