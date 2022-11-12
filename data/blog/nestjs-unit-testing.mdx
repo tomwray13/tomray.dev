@@ -10,6 +10,8 @@ images: ['']
 
 Intro
 
+To get the most of this tutorial, I recommend coding along with `npm run test:watch` running locally to see the tests we write in action!
+
 <Magnet />
 
 <TOCInline toc={props.toc} asDisclosure />
@@ -38,11 +40,31 @@ That being said, here are a few rules I follow which will be implemented in the 
 
 - Focus on the end result / behaviour
 - Avoid testing implementation details
-- Apply mocking to non-mutable dependencies
+- Don'y apply mocking to non-mutable dependencies
 
-Let's dive into some examples!
+Each of the upcoming sections can be worked in isolation.
+
+I.e. The sections don't build on each other, but they do get progressively more challenging as you scroll further down!
 
 ## A simple example (no dependencies)
+
+If you're an absolute beginner with unit testing as a practice as well as unit testing in NestJS, this section is for you!
+
+We're going to build a service with some basic CRUD functionality for handling Tweets and then write some unit tests for them.
+
+Let's start by adding a module called `tweets`:
+
+```shell
+nest g module tweets
+```
+
+And then add a tweets service:
+
+```shell
+nest g service tweets
+```
+
+Let's add some tests for these methods
 
 ## Mocking HTTP requests
 

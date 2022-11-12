@@ -314,7 +314,7 @@ Open this up in your browser and you'll see something like this:
 
 Go into the users and add a few mock users, then do the same with tweets!
 
-## Adding Prisma service to NestJS
+## Adding Prisma Client to NestJS
 
 So if you've followed along, you should have:
 
@@ -618,7 +618,7 @@ This is to ensure when we call the repository layer, the respective params have 
 
 You can create other methods for updating and deleting tweets if you like 😎.
 
-## Using REST in NestJS with Prisma
+## REST in NestJS with Prisma
 
 Let's add a couple of API endpoints!
 
@@ -707,7 +707,7 @@ Here are a few ideas on how you can take this further:
 - Tweak the getTweets service and controller to handle pagination
 - [Advanced] Add an auth layer so the userId can be passed in automatically instead of passed into the body of the request
 
-## Using GraphQL in NestJS with Prisma
+## GraphQL in NestJS with Prisma
 
 Let's now see how we can work with GraphQL in a NestJS app with Prisma!
 
@@ -892,6 +892,266 @@ export class ApiResolver {
 ```
 
 Open up your GraphQL playground and test out the query and mutation!
+
+## Unit testing Prisma in NestJS
+
+Let's add some [Prisma unit tests](https://www.prisma.io/docs/guides/testing/unit-testing) against the repository layer (where the Prisma Client is used).
+
+What's the value in writing unit tests for Prisma?
+
+Well, as your project grows in size, we want to ensure that Prisma behaves in the way we expect.
+
+The main reason for unit testing any 3rd party package used as a dependency in your project is to protect against any unexpected/breaking changes as the package goes through upgrades.
+
+For example, imagine in your project if you upgrade the Prisma dependency after Prisma rolls out a shiny new release, but don't realise that the response from a `createMany` call has been updated to a new response. Without tests for this scenario, you may be exposed to runtime errors.
+
+It's also worth adding testing to functions that use Prisma Client which can throw exceptions based on conditional paths.
+
+For example, to make this testing example a bit more fun, let's throw an exception to the `createTweet` method in the repository layer if the user tries to create a tweet which exceeds 80 characters in length:
+
+```ts:tweets.repository.ts
+import { Injectable } from '@nestjs/common';
+import { Prisma, Tweet } from '@prisma/client';
+import { PrismaService } from 'src/database/prisma.service';
+
+@Injectable()
+export class TweetsRepository {
+  constructor(private prisma: PrismaService) {}
+
+  async createTweet(params: { data: Prisma.TweetCreateInput }): Promise<Tweet> {
+    const { data } = params;
+    if (data.content.length > 80) {
+      throw new Error(`Tweet too long`);
+    }
+    return this.prisma.tweet.create({ data });
+  }
+
+  // ... plus other methods
+}
+
+```
+
+So, for the `createTweet` method, we should test:
+
+1. That creating a tweet returns the respective tweet that's just been created
+2. If a tweet exceeds 80 characters, an error is thrown
+
+As you can see in the constuctor of the repository layer above, we have 1 dependency required: `PrismaService`.
+
+In our unit tests, we don't want to make actual calls to the database via Prisma Client - we want to 'mock' this behaviour.
+
+We'll need an extra package to mock the Prisma Client:
+
+```shell
+npm install jest-mock-extended@2.0.4 --save-dev
+```
+
+With that package installed, let's now start writing the tests.
+
+Add a new file called `tweets.repository.spec.ts`:
+
+```shell
+touch src/modules/tweets/tweets.repository.spec.ts
+```
+
+In this file, using Nest's built in `Test` class, let's first creating the testing module.
+
+As we are testing the methods in the `tweets.repository` file, the `TweetsRepository` should **not** be mocked.
+
+The `PrismaService`, however, should be mocked (as mentioned above) as we don't want to make actual calls to the database, we just want to test that Prisma Client behaves as we expect:
+
+```ts:tweets.repository.spec.ts
+import { Test } from '@nestjs/testing';
+import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { TweetsRepository } from './tweets.repository';
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
+
+describe(`TweetsRepository`, () => {
+  let tweetsRepository: TweetsRepository;
+  let prismaService: DeepMockProxy<PrismaClient>;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [TweetsRepository, PrismaService],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(mockDeep<PrismaClient>())
+      .compile();
+
+    tweetsRepository = moduleRef.get(TweetsRepository);
+    prismaService = moduleRef.get(PrismaService);
+  });
+})
+```
+
+In the above code, our testing module now has access to the `tweetsRepository` class with all of it's respective functions, as well as a mocked `prismaService` class.
+
+This means that in our tests, whenever we call one of the methods in the repository layer (e.g. `createTweet`), anytime the `prismaService` is used in the method, it will used the mocked instance instead of the real instance.
+
+As noted above, for the `createTweet` method let's add tests for the following scenarios:
+
+1. Scenario 1: That creating a tweet returns the respective tweet that's just been created
+2. Scenario 2: If a tweet exceeds 80 characters, an error is thrown
+
+Starting with Scenario 1:
+
+```ts:tweets.repository.spec.ts
+import { Test } from '@nestjs/testing';
+import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { TweetsRepository } from './tweets.repository';
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
+
+describe(`TweetsRepository`, () => {
+  let tweetsRepository: TweetsRepository;
+  let prismaService: DeepMockProxy<PrismaClient>;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [TweetsRepository, PrismaService],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(mockDeep<PrismaClient>())
+      .compile();
+
+    tweetsRepository = moduleRef.get(TweetsRepository);
+    prismaService = moduleRef.get(PrismaService);
+  });
+
+  describe(`createTweet`, () => {
+    it(`should create a new tweet`, async () => {
+      // Arrange
+      const mockedTweet = {
+        id: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        content: `Hello world, this is a tweet.`,
+        userId: 1234,
+      };
+      prismaService.tweet.create.mockResolvedValue(mockedTweet);
+
+      // Act
+      const createTweet = () =>
+        tweetsRepository.createTweet({
+          data: {
+            content: mockedTweet.content,
+            user: {
+              connect: {
+                id: mockedTweet.userId,
+              },
+            },
+          },
+        });
+
+      // Assert
+      await expect(createTweet()).resolves.toBe(mockedTweet);
+    });
+  });
+})
+```
+
+The purpose of this test to ensure that the `createTweet` method in the repository layer returns the respective tweet that's been created.
+
+In the arrange part of the test, we mocked the `prismaService` so when `createTweet` method is called in the test, it knows how to handle the dependency:
+
+```ts
+prismaService.tweet.create.mockResolvedValue(mockedTweet)
+```
+
+In the act part of the test, we wrapped the `createTweet` method call into a function. This step isn't necessary (we could just call the function directly in the assert layer), but the test is a bit cleaner this way.
+
+And finally in the assert part of the test, we can define how we expect the method to behave - in this example for the `createTweet` method to return the tweet that was created.
+
+Now let's add a test for Scenario 2, when the character length of the tweet exceeds 80 characters:
+
+```ts:tweets.repository.spec.ts
+import { Test } from '@nestjs/testing';
+import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../../database/prisma.service';
+import { TweetsRepository } from './tweets.repository';
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended';
+
+describe(`TweetsRepository`, () => {
+  let tweetsRepository: TweetsRepository;
+  let prismaService: DeepMockProxy<PrismaClient>;
+
+  beforeEach(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [TweetsRepository, PrismaService],
+    })
+      .overrideProvider(PrismaService)
+      .useValue(mockDeep<PrismaClient>())
+      .compile();
+
+    tweetsRepository = moduleRef.get(TweetsRepository);
+    prismaService = moduleRef.get(PrismaService);
+  });
+
+  describe(`createTweet`, () => {
+    it(`should create a new tweet`, async () => {
+      // see previous example...
+    });
+
+    it(`should not be over 80 characters`, async () => {
+      // Arrange
+      const payload = {
+        content: `This is a super long tweet over 80 characters This is a super long tweet over 80 characters`,
+        userId: 1234,
+      };
+
+      // Act
+      const createTweet = () =>
+        tweetsRepository.createTweet({
+          data: {
+            content: payload.content,
+            user: {
+              connect: {
+                id: payload.userId,
+              },
+            },
+          },
+        });
+
+      // Assert
+      await expect(createTweet()).rejects.toBeInstanceOf(Error);
+    });
+  });
+})
+```
+
+The purpose of this test to ensure that the `createTweet` method in the repository layer throws an error if a tweet has more than 80 characters.
+
+Unlike the 1st scenario, we don't actually need to mock the `prismaService` here because the `createTweet` method throws an error before the `prismaService` is even used. Here's a reminder of the `createTweet` method to illustrate what I mean:
+
+```ts:tweets.repository.ts
+import { Injectable } from '@nestjs/common';
+import { Prisma, Tweet } from '@prisma/client';
+import { PrismaService } from 'src/database/prisma.service';
+
+@Injectable()
+export class TweetsRepository {
+  constructor(private prisma: PrismaService) {}
+
+  async createTweet(params: { data: Prisma.TweetCreateInput }): Promise<Tweet> {
+    const { data } = params;
+    if (data.content.length > 80) {
+      throw new Error(`Tweet too long`);
+    }
+    // test will not reach this point as the error has already been thrown!
+    return this.prisma.tweet.create({ data });
+  }
+}
+
+```
+
+In the act part of the test, we wrapped the `createTweet` method call into a function. Similar to the 1st scenario, this step isn't necessary (we could just call the function directly in the assert layer), but the test is a bit cleaner this way.
+
+And finally in the assert part of the test, we can define how we expect the method to behave - in this example for the `createTweet` method to throw an error as the characters exceed 80 characters.
+
+And that's it!
+
+If you'd like more practice, go and add some tests for the remaining methods in the repository layer.
 
 This was a long tutorial! Nice work if you made it to the end.
 
