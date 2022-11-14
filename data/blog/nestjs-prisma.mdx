@@ -122,7 +122,7 @@ I like to move the `schema.prisma` file into a `database` directory inside `src`
 
 This is of course opinionated and optional, skip a couple of paragraphs if you'd like to leave this as default in the `prisma` folder.
 
-After moving the `prisma.schema` file, my directory structure inside the NestJS app looks like this:
+After moving the `schema.prisma` file, my directory structure inside the NestJS app looks like this:
 
 ```
 src
@@ -132,7 +132,7 @@ src
   main.ts
 ```
 
-Because we've moved removed the Prisma directory and moved the `prisma.schema` file, we just need to add this to our `package.json` file so Prisma knows where to find it:
+Because we've moved removed the Prisma directory and moved the `schema.prisma` file, we just need to add this to our `package.json` file so Prisma knows where to find it:
 
 ```json:package.json
 {
@@ -219,7 +219,7 @@ At mentioned at the start of this tutorial, we're going to build a simple Twitte
 
 Let's add a couple of relational tables to kick off.
 
-Add the following to your `prisma.schema` file:
+Add the following to your `schema` file:
 
 ```graphql
 datasource db {
@@ -329,7 +329,7 @@ In order for the NestJS app to get and mutate data from the database we need to 
 npm install @prisma/client
 ```
 
-Prisma client is a type-safe database client directly tailored to the models you define in the `prisma.schema` file.
+Prisma client is a type-safe database client directly tailored to the models you define in the `schema.prisma` file.
 
 As per the [NestJS docs](https://docs.nestjs.com/recipes/prisma#install-and-generate-prisma-client), it's best to abstract the Prisma Client into its own service.
 
