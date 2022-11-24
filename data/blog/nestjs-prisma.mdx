@@ -88,7 +88,7 @@ Once installed, it will appear in your left menu and show you which containers (
 Now you can spin up your NestJS app with the command:
 
 ```shell
-npm run dev:start
+npm run start:dev
 ```
 
 They're not yet connected in anyway, but you now have your local Postgres server running (via Docker Compose) as well as your NestJS app server running locally on your machine.
@@ -575,7 +575,7 @@ export class TweetsService {
 
 Okay, so now the service layer has access to the repository layer, let's add a couple of methods to this service layer that the API layer can use for the upcoming sections in the tutorial!
 
-```ts:tweets.repository.ts
+```ts:tweets.service.ts
 import { Injectable } from '@nestjs/common';
 import { Tweet, User } from '@prisma/client';
 import { TweetsRepository } from './tweets.repository';
