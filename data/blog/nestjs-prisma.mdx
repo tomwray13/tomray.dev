@@ -14,7 +14,7 @@ This is a step-by-step tutorial on how to work with Prisma in a NestJS project.
 
 In this tutorial, we're going to build a simple Twitter backend clone to illustrate the ideas.
 
-This article assumes you have Docker installed and a NestJS app already up and running.
+This article assumes you have Docker installed on your machine and are familiar with some basic NestJS concepts.
 
 If you'd prefer to check out the code directly, take a look at the [repo on Github](https://github.com/tomwray13/nestjs-prisma).
 
@@ -23,6 +23,52 @@ Ready? Let's dive in 🤿.
 <Magnet />
 
 <TOCInline toc={props.toc} asDisclosure />
+
+## Set up the NestJS project
+
+Let's start by creating a new NestJS project.
+
+If you don't already have the Nest CLI installed on your machine, you can install it:
+
+```shell
+npm i -g @nestjs/cli
+```
+
+Using the Nest CLI, you can now create a new project:
+
+```shell
+nest new nestjs-prisma --strict
+```
+
+Note the `--strict` flag. This is required for this tutorial. I recommend doing this on all NestJS project you create so that Typescript's strict mode is enabled.
+
+In the CLI, you'll be prompted to choose a package manager. For this tutorial we're going to use `npm`.
+
+Once the Nest project is created, you can remove some of the default files created as we won't be needing those:
+
+```ts
+src / app.controller.spec.ts // REMOVE
+app.controller.ts // REMOVE
+app.module.ts
+app.service.ts // REMOVE
+main.ts
+```
+
+You'll also need to remove the respective imports from the `app.module.ts` file. Once you've done this your `app.module.ts` file will look like:
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+
+@Module({
+  imports: [],
+  controllers: [],
+  providers: [],
+})
+export class AppModule {}
+
+```
+
+With the initial set up out the way, let's move on to setting up the local Postgres server.
 
 ## Set up Postgres locally with Docker
 
@@ -43,7 +89,7 @@ POSTGRES_USER="username"
 POSTGRES_PASSWORD="password"
 ```
 
-Nest, add a Docker Compose file to the root of your project:
+Next, add a Docker Compose file to the root of your project:
 
 ```shell
 touch docker-compose.yml
