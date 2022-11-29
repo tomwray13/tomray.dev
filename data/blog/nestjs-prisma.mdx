@@ -960,7 +960,7 @@ For example, to make this testing example a bit more fun, let's throw an excepti
 ```ts:tweets.repository.ts
 import { Injectable } from '@nestjs/common';
 import { Prisma, Tweet } from '@prisma/client';
-import { PrismaService } from 'src/database/prisma.service';
+import { PrismaService } from '../../database/prisma.service';
 
 @Injectable()
 export class TweetsRepository {
