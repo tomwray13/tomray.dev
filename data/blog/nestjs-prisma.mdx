@@ -192,6 +192,8 @@ Because we've moved removed the Prisma directory and moved the `schema.prisma` f
 }
 ```
 
+As the `schema.prisma` file has now been moved, you can now delete the empty `prisma` directory at the root of your project.
+
 So, what is this `schema.prisma` file?
 
 The `schema.prisma` file is the main configuration file for Prisma. If you open up the file, you'll see the following:
@@ -334,7 +336,7 @@ Now anytime you need to run migrations you can run `npm run migrate` instead.
 
 Great work, you just created your first table in a database with Prisma Migrate 🎉.
 
-Now open up your GUI again and your table will be there:
+Now open up your GUI again and your table will be there (I'm using [TablePlus](https://tableplus.com/)):
 
 ![TablePlus](/static/images/nestjs-prisma/nestjs-prisma-tableplus.png)
 
