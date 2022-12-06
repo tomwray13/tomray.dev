@@ -2,7 +2,7 @@
 title: 'Ultimate Guide: NestJS Dockerfile For Production [2022]'
 h1: How to write a NestJS Dockerfile optimized for production
 date: '2022-05-15'
-lastmod: '2022-06-05'
+lastmod: '2022-12-06'
 draft: false
 summary: Learn how to write a Dockerfile that creates a production optimized image using the NodeJS Alpine image and multistage builds.
 images: ['/static/images/nestjs-docker-production/nest-docker-production.png']
@@ -320,6 +320,90 @@ The Nest CLI is a dev dependency, so if you're getting the error `nest command n
 - Update your package.json file to include the Nest CLI package in your production dependencies. The only downside of this approach as it increases the size of your node_modules resulting in a larger image
 
 The recommended option is what is implemented in the Dockerfile mentioned above in this tutorial if you want an example of how that works.
+
+## Dockerfile with pnpm package manager
+
+If you're using pnpm as the package manager in your NestJS project, the Dockerfile will need to be as follows:
+
+```Dockerfile:Dockerfile
+###################
+# BUILD FOR LOCAL DEVELOPMENT
+###################
+
+FROM node:18 As development
+RUN curl -f https://get.pnpm.io/v6.16.js | node - add --global pnpm
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node pnpm-lock.yaml ./
+
+RUN pnpm fetch --prod
+
+COPY --chown=node:node . .
+RUN pnpm install
+
+USER node
+
+###################
+# BUILD FOR PRODUCTION
+###################
+
+FROM node:18 As build
+RUN curl -f https://get.pnpm.io/v6.16.js | node - add --global pnpm
+
+WORKDIR /usr/src/app
+
+COPY --chown=node:node pnpm-lock.yaml ./
+
+COPY --chown=node:node --from=development /usr/src/app/node_modules ./node_modules
+
+COPY --chown=node:node . .
+
+RUN pnpm build
+
+ENV NODE_ENV production
+
+RUN pnpm install --prod
+
+USER node
+
+###################
+# PRODUCTION
+###################
+
+FROM node:18-alpine As production
+
+COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
+COPY --chown=node:node --from=build /usr/src/app/dist ./dist
+
+CMD [ "node", "dist/main.js" ]
+```
+
+## NestJS Dockerfile with Fastify
+
+If you're using Fastify as your server in NestJS instead of the default express server, you'll need to modify the server to listed on `0.0.0.0`.
+
+For example, here's how you would edit the `bootstrap()` function in the `main.ts` file:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import {
+  FastifyAdapter,
+  NestFastifyApplication,
+} from '@nestjs/platform-fastify';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create<NestFastifyApplication>(
+    AppModule,
+    new FastifyAdapter(),
+  );
+  await app.listen(process.env.PORT || 3000, '0.0.0.0');
+}
+bootstrap();
+```
+
+This is noted inside the [Fastify docs](https://www.fastify.io/docs/latest/Guides/Getting-Started/#your-first-server) if you'd like to read more about this.
 
 ## Conclusion
 
