@@ -5,7 +5,7 @@ const withBundleAnalyzer = require('@next/bundle-analyzer')({
 // You might need to insert additional domains in script-src if you are using external services
 const ContentSecurityPolicy = `
   default-src 'self';
-  script-src 'self' 'unsafe-eval' 'unsafe-inline' *.usefathom.com *.pirsch.io giscus.app;
+  script-src 'self' 'unsafe-eval' 'unsafe-inline' *.pirsch.io giscus.app;
   style-src 'self' 'unsafe-inline';
   img-src * blob: data:;
   media-src 'none';
@@ -59,7 +59,6 @@ module.exports = withBundleAnalyzer({
   reactStrictMode: true,
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
   env: {
-    FATHOM: process.env.FATHOM,
     PIRSCH: process.env.PIRSCH,
     CONVERTKIT_API_KEY: process.env.CONVERTKIT_API_KEY,
   },
