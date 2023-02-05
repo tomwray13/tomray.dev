@@ -11,30 +11,23 @@ import LayoutWrapper from '@/components/LayoutWrapper'
 import { ClientReload } from '@/components/ClientReload'
 import { useEffect } from 'react'
 import * as Fathom from 'fathom-client'
-import { useRouter } from 'next/router'
+import Router from 'next/router'
 
 const isDevelopment = process.env.NODE_ENV === 'development'
 const isSocket = process.env.SOCKET
 
-export default function App({ Component, pageProps }: AppProps) {
-  const router = useRouter()
+Router.events.on('routeChangeComplete', (as, routeProps) => {
+  if (!routeProps.shallow) {
+    Fathom.trackPageview()
+  }
+})
 
+export default function App({ Component, pageProps }: AppProps) {
   useEffect(() => {
     Fathom.load(process.env.FATHOM, {
       includedDomains: ['tomray.dev'],
     })
-
-    function onRouteChangeComplete() {
-      Fathom.trackPageview()
-    }
-    // Record a pageview when route changes
-    router.events.on('routeChangeComplete', onRouteChangeComplete)
-
-    // Unassign event listener
-    return () => {
-      router.events.off('routeChangeComplete', onRouteChangeComplete)
-    }
-  }, [router.events])
+  }, [])
   return (
     <ThemeProvider attribute="class" defaultTheme={siteMetadata.theme}>
       <Head>
@@ -43,6 +36,7 @@ export default function App({ Component, pageProps }: AppProps) {
       {isDevelopment && isSocket && <ClientReload />}
       <Analytics />
       <LayoutWrapper>
+        <p>HI! {process.env.FATHOM}</p>
         <Component {...pageProps} />
       </LayoutWrapper>
     </ThemeProvider>

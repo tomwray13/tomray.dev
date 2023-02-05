@@ -59,9 +59,7 @@ module.exports = withBundleAnalyzer({
   reactStrictMode: true,
   pageExtensions: ['ts', 'tsx', 'js', 'jsx', 'md', 'mdx'],
   env: {
-    GTM_ID: process.env.GTM_ID,
-    GTM_AUTH: process.env.GTM_AUTH,
-    GTM_PREVIEW: process.env.GTM_PREVIEW,
+    FATHOM: process.env.FATHOM,
     CONVERTKIT_API_KEY: process.env.CONVERTKIT_API_KEY,
   },
   eslint: {
