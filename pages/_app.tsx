@@ -30,6 +30,13 @@ export default function App({ Component, pageProps }: AppProps) {
     <ThemeProvider attribute="class" defaultTheme={siteMetadata.theme}>
       <Head>
         <meta content="width=device-width, initial-scale=1" name="viewport" />
+        <script
+          defer
+          type="text/javascript"
+          src="https://api.pirsch.io/pirsch.js"
+          id="pirschjs"
+          data-code={process.env.PIRSCH_ID}
+        ></script>
       </Head>
       {isDevelopment && isSocket && <ClientReload />}
       <Analytics />
