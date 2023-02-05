@@ -43,7 +43,6 @@ export default function App({ Component, pageProps }: AppProps) {
       {isDevelopment && isSocket && <ClientReload />}
       <Analytics />
       <LayoutWrapper>
-        <p>HI! {process.env.FATHOM}</p>
         <Component {...pageProps} />
       </LayoutWrapper>
     </ThemeProvider>
