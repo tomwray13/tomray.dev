@@ -2,6 +2,8 @@
 import { PageSEO } from '@/components/SEO'
 import { GetStaticPropsContext } from 'next'
 import { useRouter } from 'next/router'
+import { Pirsch } from 'pirsch-sdk/web'
+import { useEffect } from 'react'
 
 export async function getStaticPaths() {
   const pages = ['nestjs-cheat-sheet']
@@ -33,12 +35,22 @@ export async function getStaticProps(context: GetStaticPropsContext) {
   }
 }
 
+const pirschCall = async (value: string) => {
+  const client = new Pirsch({
+    identificationCode: process.env.PIRSCH,
+  })
+  await client.event(`email-opt-in`, 0, { resource: value })
+}
+
 export default function Almost() {
   const router = useRouter()
-  if (typeof window !== 'undefined') {
-    const { id } = router.query
-    router.push(`/resources/${id[0]}`)
-  }
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const { id } = router.query
+      pirschCall(id[0])
+      router.push(`/resources/${id[0]}`)
+    }
+  })
   return (
     <>
       <PageSEO title="Loading..." description="Loading up resource." isHiddenFromSearch />
