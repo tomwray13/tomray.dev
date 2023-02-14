@@ -7,7 +7,6 @@ import ScrollTopAndComment from '@/components/ScrollTopAndComment'
 import { ReactNode } from 'react'
 import { PostFrontMatter } from 'types/PostFrontMatter'
 import { Toc } from 'types/Toc'
-import TOCSidebar from '@/components/TOCSidebar'
 
 interface Props {
   frontMatter: PostFrontMatter
@@ -17,7 +16,7 @@ interface Props {
   toc: Toc
 }
 
-export default function PostLayout({ frontMatter, children, toc }: Props) {
+export default function PostLayout({ frontMatter, children }: Props) {
   const { slug, lastmod, h1 } = frontMatter
 
   return (

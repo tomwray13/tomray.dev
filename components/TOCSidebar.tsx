@@ -80,7 +80,7 @@ const TOCSidebar = ({
           className={`${heading.depth >= indentDepth && 'ml-6 list-disc'} ${
             heading.url.slice(1) === activeId
               ? `font-semibold text-primary-500 opacity-100`
-              : ` opacity-70`
+              : ` text-gray-600`
           } mb-2 text-sm hover:underline hover:opacity-100`}
         >
           <a href={heading.url}>{heading.value}</a>

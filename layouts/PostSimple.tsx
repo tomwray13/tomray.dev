@@ -1,4 +1,3 @@
-import PageTitle from '@/components/PageTitle'
 import { BlogSEO } from '@/components/SEO'
 import siteMetadata from '@/data/siteMetadata'
 import formatDate from '@/lib/utils/formatDate'
@@ -8,17 +7,8 @@ import { ReactNode } from 'react'
 import { PostFrontMatter } from 'types/PostFrontMatter'
 import { Toc } from 'types/Toc'
 import TOCSidebar from '@/components/TOCSidebar'
-import {
-  EmailIcon,
-  EmailShareButton,
-  LinkedinIcon,
-  LinkedinShareButton,
-  RedditIcon,
-  RedditShareButton,
-  TwitterIcon,
-  TwitterShareButton,
-} from 'next-share'
 import Magnet from '@/components/Magnet'
+import ConvertKitForm from '@/components/ConvertKitForm'
 
 interface Props {
   frontMatter: PostFrontMatter
@@ -38,43 +28,34 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
       <ScrollTopAndComment />
       <article className="mx-auto">
         <div>
-          <header className="mx-auto max-w-2xl">
-            <div className="text-center">
-              <dl>
-                <div>
-                  <dt className="sr-only">Published on</dt>
-                  <dd className="text-normal mb-2 leading-6 text-gray-500 dark:text-gray-400">
-                    Last updated: <time dateTime={lastmod}>{formatDate(lastmod)}</time>
-                  </dd>
-                </div>
-              </dl>
-              <div>
-                <PageTitle>{h1}</PageTitle>
-              </div>
-            </div>
-          </header>
           <div className="pb-8  " style={{ gridTemplateRows: 'auto 1fr' }}>
             <div className="xl:col-span-3 xl:row-span-2 xl:pb-0">
               <div className="lg:flex">
-                <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
-                <div className="sticky top-0 hidden h-screen pt-6 pb-8 pl-6 lg:block xl:pl-10">
+                <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">
+                  <header className="mb-8">
+                    <dl>
+                      <div>
+                        <dt className="sr-only">Published on</dt>
+                        <dd className="text-normal mb-2 leading-6 text-gray-500 dark:text-gray-400">
+                          Last updated: <time dateTime={lastmod}>{formatDate(lastmod)}</time>
+                        </dd>
+                      </div>
+                    </dl>
+                    <h1 className="mb-4 text-left text-4xl text-gray-900 sm:text-5xl sm:font-extrabold">
+                      {h1}
+                    </h1>
+                  </header>
+                  <div>{children}</div>
+                </div>
+                <div className="sticky top-0 hidden h-screen pt-6 pb-8 pl-6 lg:block xl:pl-16">
                   <TOCSidebar toc={toc} asDisclosure />
                   <div>
-                    <h3 className="mb-2 font-bold">Share</h3>
-                    <div className="space-x-2">
-                      <TwitterShareButton url={url} title={h1}>
-                        <TwitterIcon size={32} round id="social-twitter" />
-                      </TwitterShareButton>
-                      <RedditShareButton url={url} title={h1}>
-                        <RedditIcon size={32} round id="social-reddit" />
-                      </RedditShareButton>
-                      <LinkedinShareButton url={url}>
-                        <LinkedinIcon size={32} round id="social-linkedin" />
-                      </LinkedinShareButton>
-                      <EmailShareButton url={url} subject={'Next Share'} body="body">
-                        <EmailIcon size={32} round id="social-email" />
-                      </EmailShareButton>
-                    </div>
+                    {/* <h3 className="mb-2 font-bold">Learning NestJS?</h3>
+                    <p className="text-sm text-gray-600">
+                      Get my free guide on fundamental NestJS concepts like TypeScript Classes,
+                      Dependency Injection and IoC Containers and more. These first principles will
+                    </p>
+                    <ConvertKitForm buttonText="Get free guide" /> */}
                   </div>
                 </div>
               </div>
