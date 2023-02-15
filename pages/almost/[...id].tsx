@@ -17,7 +17,7 @@ export async function getStaticPaths() {
 }
 
 export async function getStaticProps(context: GetStaticPropsContext) {
-  const pages = ['nestjs-cheat-sheet']
+  const pages = [`nestjs-cheat-sheet`, `nestjs-first-principles`]
   const isValidUrl = pages.includes(context.params.id[0])
   if (!isValidUrl) {
     return {

@@ -1,0 +1,465 @@
+---
+title: 'NestJS First Principles'
+h1: NestJS First Principles & Fundamentals
+date: '2022-02-10'
+lastmod: '2022-02-10'
+draft: false
+summary: NestJS First Principles.
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: true
+---
+
+There are a few fundamental concepts and techniques that are foundational for learning NestJS and the ecosystem that surrounds it.
+
+This 2,000+ words guide aims to cover those topics.
+
+Ready? Let's go!
+
+## 📖 TypeScript Classes
+
+Classes are used everywhere in NestJS. Here's a simple example of a class:
+
+```ts
+class TweetService {
+  // private fields
+  private tweet: string
+  private userId: string
+
+  // constructor: define arguments to pass into class
+  constructor(tweet: string, userId: string) {
+    // set the arguments to their respective fields
+    this.tweet = tweet
+    this.userId = userId
+  }
+
+  // method
+  getTweet() {
+    return `Tweet: "${tweet}" by user with id ${userId}`
+  }
+}
+```
+
+Classes are really just special functions - they're a great way to organize your code into logical groups in an Object-Oriented fashion.
+
+Let's go over the 3 parts of the class defined above: the `constructor()` method, fields and methods.
+
+You can think of the `constructor()` method the same way as defining arguments required for a function.
+
+For example, here's a function with the same arguments used in the class:
+
+```ts
+const tweetFunction = (tweet: string, userId: string) => {
+  return `Tweet: "${tweet}" by user with id ${userId}`
+}
+
+tweetFunction(`I love to tweet`, 4234)
+```
+
+Using the `constructor` method in Classes is how you can define parameters that need to be passed in when the class is instantiated.
+
+Similar to functions, when using the class, the order of the arguments is important.
+
+Next up we have fields. Fields are variables that hold information relevant to the class.
+
+You'll notice that the `private` keyword has been used. This ensures that the variable is only accessible from inside the class - the outside world cannot view or change these private fields directly.
+
+For example, this code would **not** work:
+
+```ts
+const tweetService = TweetService(`I love to tweet`, 4234)
+tweetService.tweet // syntax error
+tweetService.userId // syntax error
+```
+
+Private fields are helpful when you want to enforce some encapsulation to your code.
+
+You'll notice in NestJS that private variables are generally used by default. There's a TypeScript shorthand for defining private variables which will make your life a bit easier.
+
+Let's refactor the `TweetService` above to use this shorthand:
+
+```ts
+class TweetService {
+  // constructor: define arguments to pass into class
+  constructor(private tweet: string, private userId: string) {}
+
+  // method
+  getTweet() {
+    return `Tweet: "${tweet}" by user with id ${userId}`
+  }
+}
+```
+
+Just by adding the `private` keyword next to each respective argument, TypeScript takes care of assigning these arguments to private fields in the class.
+
+Finally, we have methods.
+
+Methods are special custom functions you define in the class to perform behaviors relevant to the class.
+
+For example, you could add CRUD methods for the `TweetService`:
+
+```ts
+class TweetService {
+  // constructor: define arguments to pass into class
+  constructor(private tweet: string, private userId: string) {}
+
+  // method
+  getTweet() {
+    return `Tweet: "${tweet}" by user with id ${userId}`
+  }
+
+  createTweet() {
+    // ...
+  }
+
+  updateTweet() {
+    // ...
+  }
+
+  deleteTweet() {
+    // ...
+  }
+```
+
+If you want to use this class and call a method from the class, you can do this:
+
+```ts
+// first instantiate the class
+const tweetService = TweetService(`I love to tweet`, 4234)
+
+// then call the method
+tweetService.getTweet()
+```
+
+You might have noticed, however, that even though NestJS uses classes everywhere, you **won't** see any class instantiation like we've just done above.
+
+So classes are used everywhere in NestJS but the classes are never instantiated... That seems a bit strange, right?
+
+That's because NestJS uses a **dependency injection container** to instantiate classes for you.
+
+What the hell is a dependency injection container?
+
+It might be THE most important concept to understand in NestJS.
+
+Let's break down the dependency injection container into 2 parts. First the dependency injection part, then the container.
+
+## 💉 Dependency Injection
+
+Let's update our `TweetService` example to see how dependency injection works.
+
+Please note this is not production-ready code - just an example to demonstrate how dependency injection works.
+
+```ts
+import { createClient } from 'redis'
+
+class TweetService {
+  constructor() {}
+
+  getTweet(id: string) {
+    const cache = createClient()
+    const tweetInCache = cache.get(`tweetId`, id)
+    if (tweetInCache) return tweetInCache
+    // ... continue with function
+  }
+
+  // ... other methods
+}
+```
+
+The code is fairly straightforward - in the `getTweet()` method, we're creating a Redis client and then trying to get a tweet from the cache. If the tweet is in the cache, we return it. If not, we continue with the function.
+
+In this example, the Redis client is a dependency.
+
+A dependency is when the code depends on something for it to work. If you were to remove that thing, the code would break.
+
+Even though the above code will work, challenges will arise as the project grows:
+
+- **Coupling:** The Redis client is set up inside the `getTweet` method. What if we want to use the Redis client in another method in the class? Or what if we want to use Redis in another class entirely?
+- **Testing:** When adding unit tests for the `getTweet` method, we'll want to test the end result of the method to ensure it works as expected. One of these unit tests might depend on the cache. To make the test reliable and non-brittle, it would be better to mock the cache to a predefined state (rather than use an actual Redis instance) which is not possible with the current set up.
+- **Dependency updates:** What happens in the future if we want to use a different caching provider than Redis? In our current set up, we'd need to update the code everywhere the cache methods are called.
+
+All of these challenges are exactly what dependency injection solves well. Let's update our code to use dependency injection!
+
+Let's update the `TweetsService` to inject the cache dependency:
+
+```ts
+interface Cache {
+  get(key: string): Promise<any>
+  set(key: string, value: any): Promise<any>
+}
+
+class TweetService {
+  constructor(private cache: Cache) {}
+
+  getTweet(id: string) {
+    const tweetInCache = this.cache.get(`tweetId:${id}`)
+    if (tweetInCache) return tweetInCache
+    // ... continue with function
+  }
+
+  // ... other methods
+}
+```
+
+When you use this class, you'll need to pass in what's defined in the constructor:
+
+```ts
+import { createClient } from 'redis'
+
+const cache = createClient()
+const tweetService = new TweetService(cache) // cache passed in as argument as defined in the constructor
+```
+
+You'll also notice that the argument passed into the constructor has a type of `Cache`, using the respective interface:
+
+```ts
+interface Cache {
+  get(key: string): Promise<any>
+  set(key: string, value: any): Promise<any>
+}
+```
+
+Typing the constructor `cache` argument with this interface means that whatever you pass in as the cache variable, it needs to have these methods defined.
+
+Nice! Let's go back to our original 3 challenges and see if the refactored code solves them:
+
+- **Coupling:** The caching is no longer tightly coupled inside the `getTweet` method. In fact, caching can now be used in any of the other methods in the class, or used in other classes entirely.
+- **Testing:** We can now pass in a mocked instance of the cache (as long as the mocked instance uses the contract defined in the `Cache` interface!) which can then be used to write non-brittle tests.
+- **Dependency updates:** If you decide to stop using Redis and go with a different caching solution, as long as the dependency can meet the contract defined in the `Cache` interface, we'd only need to update the code in 1 place in our example.
+
+So, hopefully, the above example illustrates well the problems dependency injection solve.
+
+## 📦 IoC (Inversion of Control) Container
+
+Let's extend our example into a simple Express server with a few classes and injections going on to create a router:
+
+```ts
+// ... import respective classes
+import express from 'express'
+
+const port = process.env.port || 5000
+const app = express()
+
+const logger = new Logger(console)
+const tweetRepository = new TweetRepository(logger)
+const tweetService = new TweetService(logger, cache, tweetRepository)
+const tweetController = new TweetController(logger, tweetService)
+
+app.use(`/tweets`, tweetController.routes())
+app.listen(port, () => console.log(`listening on port: ${port}`))
+```
+
+Each class needs instantiating (to use it) before passing it into another class as a dependency.
+
+This approach works - but imagine you have 100s of 'injectable' classes. That'd be a lot of class instantiation and injection.
+
+That's what an IoC container handles for you (also known as a DI container) - you delegate the instantiation of the classes and their dependencies to the container.
+
+For example, let's update our above example to use [TSyringe](https://github.com/microsoft/tsyringe), a DI container that is quite similar to the NestJS DI container:
+
+```ts
+// ... import respective classes
+import 'reflect-metadata'
+import express from 'express'
+import { container } from 'tsyringe'
+
+const port = process.env.port || 5000
+const app = express()
+
+const tweetController = container.resolve(TweetController)
+
+app.use(`/tweets`, tweetController.routes())
+app.listen(port, () => console.log(`listening on port: ${port}`))
+```
+
+It does kind of feel like magic. We no longer need to instantiate all the classes, we just need to define our entry point for the container and the rest is taken care of.
+
+Please note the above code example doesn't cover the whole story. To use TSyringe, you'll need to add `@autoInjectable` TypeScript decorators to the injectable classes (kind of similar to NestJS!). I recommend watching [this tutorial](https://www.youtube.com/watch?v=D1kM5W9r85Q) to take the above example further.
+
+## 🐈 NestJS DI Container
+
+The NestJS team has taken the powerful concept of dependency injection and containers and come up with a very elegant solution for building NodeJS server-side applications in a modular way.
+
+It's time to finally get into some NestJS code!
+
+Let's start by creating a new NestJS project (choose the package manager of your choice!):
+
+```bash
+nest new nest-fundamentals --strict
+```
+
+Please note the above command requires the [Nest CLI](https://docs.nestjs.com/cli/overview) to be installed on your machine.
+
+DI containers usually need an entry point where all the respective classes and dependencies are mapped from, and NestJS is no different.
+
+Open up the `main.ts` file and you'll also see the code for creating the container and entry point:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+The `NestFactory.create()` creates the DI container and the 'root module' is `AppModule`.
+
+Taken from the NestJS docs:
+
+"The root module is the starting point Nest uses to build the application graph - the internal data structure Nest uses to resolve module and provider relationships and dependencies."
+
+So let's open up the `AppModule` class and take a look:
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+If you're working on a super small server-side app, this module alone will be enough to:
+
+- Add your HTTP routes inside the `AppController` (a NestJS [controller](https://docs.nestjs.com/controllers))
+- Add any business logic inside the `AppService` (a NestJS [provider](https://docs.nestjs.com/providers))
+
+However, as your project grows, you'll want to leverage the concept of [modules](https://docs.nestjs.com/module) to keep your code organized. This is strongly encouraged by the NestJS team, the following statement is taken directly from the docs:
+
+"While very small applications may theoretically have just the root module, this is not the typical case. We want to emphasize that modules are strongly recommended as an effective way to organize your components. Thus, for most applications, the resulting architecture will employ multiple modules, each encapsulating a closely related set of capabilities."
+
+So let's add 2 new modules to the project:
+
+```bash
+nest generate module tweets
+nest generate module users
+```
+
+Notice how in the `app.module.ts` file, the `imports` array has been updated with the respective modules?
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { TweetsModule } from './tweets/tweets.module';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [TweetsModule, UsersModule],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+While the Nest CLI did this for you automatically, it's important to note that to make these modules available in the DI container, they need to be imported into the root module.
+
+It's also worth noting that you should only use `Modules` in the `imports` array - this applies to all modules (not just the root module). Continue reading for more on this point!
+
+Let's say inside the `Users` functionality we want to use some functionality from the `Tweets` domain.
+
+We'll add a service for both modules:
+
+```bash
+nest generate service tweets
+nest generate service users
+```
+
+This will generate the respective service files and update the module files. All services (i.e. classes with functionality/business logic) need to be declared inside the `providers` array.
+
+For example, here's the `UsersModule`:
+
+```ts:users.module.ts
+import { Module } from '@nestjs/common';
+import { UsersService } from './users.service';
+
+@Module({
+  providers: [UsersService],
+})
+export class UsersModule {}
+
+```
+
+Inside the `UsersService`, imagine we want to access some logic from the `Tweets` domain:
+
+```ts:users.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class UsersService {
+  getUser() {
+    // get all tweets associated with this user
+  }
+}
+
+```
+
+If you've been following along from the dependency injection section above, you'll know that to inject a dependency in TypeScript classes you use the constructor method. So our `UsersService` will look something like this:
+
+```ts:users.service.ts
+import { Injectable } from '@nestjs/common';
+import { TweetsService } from 'src/tweets/tweets.service';
+
+@Injectable()
+export class UsersService {
+  constructor(private TweetsService: TweetsService) {}
+
+  getUser() {
+    // get all tweets associated with this user
+    const tweets = this.TweetsService.getTweets();
+    // ... continue with function
+  }
+}
+
+```
+
+However, using the Nest DI container requires a couple of extra steps to make the above code work.
+
+First of all, to use the `TweetsService` outside of the domain of `Tweets`, we need to declare that by adding to the `exports` array:
+
+```ts:tweets.module.ts
+import { Module } from '@nestjs/common';
+import { TweetsService } from './tweets.service';
+
+@Module({
+  providers: [TweetsService],
+  exports: [TweetsService],
+})
+export class TweetsModule {}
+
+```
+
+And then to use the `TweetsService` inside the `Users` domain, we'll need to include the `TweetsModule` as an import:
+
+```ts:users.module.ts
+import { Module } from '@nestjs/common';
+import { TweetsModule } from 'src/tweets/tweets.module';
+import { UsersService } from './users.service';
+
+@Module({
+  imports: [TweetsModule],
+  providers: [UsersService],
+})
+export class UsersModule {}
+
+```
+
+**Important:** Note how the `TweetsModule` is imported (rather than the `TweetsService`).
+
+Similar to the imports in the `app.module.ts` file, it's important to remember that modules should be used in the imports array.
+
+## 🏁 Conclusion
+
+Nice work!
+
+We've just covered TypeScript Classes, Dependency Injection, Containers and the NestJS DI container system itself.
+
+Please let me know if there's anything else that should be added to this guide (you can just reply to the email you received). I update the guide regularly based on feedback!
