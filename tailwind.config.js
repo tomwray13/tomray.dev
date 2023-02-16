@@ -37,12 +37,6 @@ module.exports = {
           500: '#596BC3',
           600: '#596BC3',
         },
-        green: {
-          200: '#86d87224',
-          400: '#7DBA6F',
-          500: '#7DBA6F',
-          600: '#7DBA6F',
-        },
         //@ts-ignore
         gray: colors.neutral, // TODO: Remove ts-ignore after tw types gets updated to v3
       },

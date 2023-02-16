@@ -29,7 +29,7 @@ const TOCSidebar = ({
   toc,
   indentDepth = 3,
   fromHeading = 1,
-  toHeading = 6,
+  toHeading = 2,
   asDisclosure = false,
   exclude = '',
 }: TOCSidebarProps) => {

@@ -11,11 +11,11 @@ export default function Magnet() {
       />
       <div>
         <span className="mb-1 inline-block text-xl font-bold dark:text-gray-800">
-          Get Free NestJS Cheat Sheet
+          Learn NestJS Fundamentals
         </span>
         <span className="flex flex-col dark:text-gray-800">
-          Get access to my free NestJS cheat sheet and learn tips and advanced techniques to improve
-          your developer workflow and NestJS applications in production.
+          Want to use NestJS to it's full potential and understand how it really works? Check out my
+          free guide which covers concepts like Dependency Injection, IoC Containers and more:
         </span>
         <ConvertKitForm />
       </div>

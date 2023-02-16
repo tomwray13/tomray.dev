@@ -1,14 +1,14 @@
 /* eslint-disable @next/next/no-img-element */
 import { PageSEO } from '@/components/SEO'
+import { SUCCESS_PAGES } from '@/data/contants'
 import { GetStaticPropsContext } from 'next'
 import { useRouter } from 'next/router'
 import { Pirsch } from 'pirsch-sdk/web'
 import { useEffect } from 'react'
 
 export async function getStaticPaths() {
-  const pages = ['nestjs-cheat-sheet']
   return {
-    paths: pages.map((p) => {
+    paths: SUCCESS_PAGES.map((p) => {
       return {
         params: {
           id: [p],
@@ -20,8 +20,7 @@ export async function getStaticPaths() {
 }
 
 export async function getStaticProps(context: GetStaticPropsContext) {
-  const pages = ['nestjs-cheat-sheet']
-  const isValidUrl = pages.includes(context.params.id[0])
+  const isValidUrl = SUCCESS_PAGES.includes(context.params.id[0])
   if (!isValidUrl) {
     return {
       redirect: {
