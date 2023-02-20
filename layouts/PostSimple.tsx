@@ -9,6 +9,8 @@ import { Toc } from 'types/Toc'
 import TOCSidebar from '@/components/TOCSidebar'
 import Magnet from '@/components/Magnet'
 import ConvertKitForm from '@/components/ConvertKitForm'
+import Link from 'next/link'
+import PopularArticles from '@/components/PopularArticles'
 
 interface Props {
   frontMatter: PostFrontMatter
@@ -49,7 +51,8 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                 </div>
                 <div className="sticky top-0 hidden h-screen pt-6 pb-8 pl-6 lg:block xl:pl-16">
                   <TOCSidebar toc={toc} asDisclosure />
-                  <div>
+                  <PopularArticles currentPath={slug} />
+                  {/* <div>
                     <h3 className="mb-1 font-bold">Learn NestJS Fundamentals</h3>
                     <p className="text-sm leading-6 text-gray-600">
                       Want to use NestJS to it's full potential and understand how it really works?
@@ -57,7 +60,7 @@ export default function PostLayout({ frontMatter, children, toc }: Props) {
                       Containers and more:
                     </p>
                     <ConvertKitForm buttonText="Get free guide" sideForm={false} />
-                  </div>
+                  </div> */}
                 </div>
               </div>
               <div className="mx-auto max-w-2xl">

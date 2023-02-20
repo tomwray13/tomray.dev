@@ -29,7 +29,7 @@ const TOCSidebar = ({
   toc,
   indentDepth = 3,
   fromHeading = 1,
-  toHeading = 2,
+  toHeading = 6,
   asDisclosure = false,
   exclude = '',
 }: TOCSidebarProps) => {
@@ -91,7 +91,7 @@ const TOCSidebar = ({
 
   return (
     <div className="mb-8">
-      <h3 className="mb-2 font-bold">Table of Contents</h3>
+      <h3 className="mb-2 font-bold">📖 Table of contents</h3>
       <div className="">{tocList}</div>
     </div>
   )
