@@ -1,0 +1,203 @@
+---
+title: 'NestJS First Principles - Part 3'
+h1: NestJS Course - Part 3
+date: '2023-03-12'
+lastmod: '2023-03-12'
+draft: false
+summary: NestJS First Principles.
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: true
+---
+
+This is part 3 in the 3 part email course on NestJS.
+
+In the [last lesson](/resources/nestjs-first-principles/part-2), we covered Dependency Injection and IoC Containers.
+
+## 🐈 NestJS DI Container
+
+The NestJS team has taken the powerful concept of dependency injection and containers and come up with a very elegant solution for building NodeJS server-side applications in a modular way.
+
+It's time to finally get into some NestJS code!
+
+Let's start by creating a new NestJS project (choose the package manager of your choice!):
+
+```bash
+nest new nest-fundamentals --strict
+```
+
+Please note the above command requires the [Nest CLI](https://docs.nestjs.com/cli/overview) to be installed on your machine.
+
+DI containers usually need an entry point where all the respective classes and dependencies are mapped from, and NestJS is no different.
+
+Open up the `main.ts` file and you'll also see the code for creating the container and entry point:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+The `NestFactory.create()` creates the DI container and the 'root module' is `AppModule`.
+
+Taken from the NestJS docs:
+
+"The root module is the starting point Nest uses to build the application graph - the internal data structure Nest uses to resolve module and provider relationships and dependencies."
+
+So let's open up the `AppModule` class and take a look:
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+If you're working on a super small server-side app, this module alone will be enough to:
+
+- Add your HTTP routes inside the `AppController` (a NestJS [controller](https://docs.nestjs.com/controllers))
+- Add any business logic inside the `AppService` (a NestJS [provider](https://docs.nestjs.com/providers))
+
+However, as your project grows, you'll want to leverage the concept of [modules](https://docs.nestjs.com/module) to keep your code organized. This is strongly encouraged by the NestJS team, the following statement is taken directly from the docs:
+
+"While very small applications may theoretically have just the root module, this is not the typical case. We want to emphasize that modules are strongly recommended as an effective way to organize your components. Thus, for most applications, the resulting architecture will employ multiple modules, each encapsulating a closely related set of capabilities."
+
+So let's add 2 new modules to the project:
+
+```bash
+nest generate module tweets
+nest generate module users
+```
+
+Notice how in the `app.module.ts` file, the `imports` array has been updated with the respective modules?
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { TweetsModule } from './tweets/tweets.module';
+import { UsersModule } from './users/users.module';
+
+@Module({
+  imports: [TweetsModule, UsersModule],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+While the Nest CLI did this for you automatically, it's important to note that to make these modules available in the DI container, they need to be imported into the root module.
+
+It's also worth noting that you should only use `Modules` in the `imports` array - this applies to all modules (not just the root module). Continue reading for more on this point!
+
+Let's say inside the `Users` functionality we want to use some functionality from the `Tweets` domain.
+
+We'll add a service for both modules:
+
+```bash
+nest generate service tweets
+nest generate service users
+```
+
+This will generate the respective service files and update the module files. All services (i.e. classes with functionality/business logic) need to be declared inside the `providers` array.
+
+For example, here's the `UsersModule`:
+
+```ts:users.module.ts
+import { Module } from '@nestjs/common';
+import { UsersService } from './users.service';
+
+@Module({
+  providers: [UsersService],
+})
+export class UsersModule {}
+
+```
+
+Inside the `UsersService`, imagine we want to access some logic from the `Tweets` domain:
+
+```ts:users.service.ts
+import { Injectable } from '@nestjs/common';
+
+@Injectable()
+export class UsersService {
+  getUser() {
+    // get all tweets associated with this user
+  }
+}
+
+```
+
+If you've been following along from the dependency injection section above, you'll know that to inject a dependency in TypeScript classes you use the constructor method. So our `UsersService` will look something like this:
+
+```ts:users.service.ts
+import { Injectable } from '@nestjs/common';
+import { TweetsService } from 'src/tweets/tweets.service';
+
+@Injectable()
+export class UsersService {
+  constructor(private TweetsService: TweetsService) {}
+
+  getUser() {
+    // get all tweets associated with this user
+    const tweets = this.TweetsService.getTweets();
+    // ... continue with function
+  }
+}
+
+```
+
+However, using the Nest DI container requires a couple of extra steps to make the above code work.
+
+First of all, to use the `TweetsService` outside of the domain of `Tweets`, we need to declare that by adding to the `exports` array:
+
+```ts:tweets.module.ts
+import { Module } from '@nestjs/common';
+import { TweetsService } from './tweets.service';
+
+@Module({
+  providers: [TweetsService],
+  exports: [TweetsService],
+})
+export class TweetsModule {}
+
+```
+
+And then to use the `TweetsService` inside the `Users` domain, we'll need to include the `TweetsModule` as an import:
+
+```ts:users.module.ts
+import { Module } from '@nestjs/common';
+import { TweetsModule } from 'src/tweets/tweets.module';
+import { UsersService } from './users.service';
+
+@Module({
+  imports: [TweetsModule],
+  providers: [UsersService],
+})
+export class UsersModule {}
+
+```
+
+**Important:** Note how the `TweetsModule` is imported (rather than the `TweetsService`).
+
+Similar to the imports in the `app.module.ts` file, it's important to remember that modules should be used in the imports array.
+
+## 🏁 Conclusion
+
+Nice work!
+
+We've just covered TypeScript Classes, Dependency Injection, Containers and the NestJS DI container system itself.
+
+Please let me know if there's anything else that should be added to this course (you can just reply to the email you received). I update the course regularly based on feedback!

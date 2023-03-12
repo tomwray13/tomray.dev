@@ -3,7 +3,7 @@ import Router from 'next/router'
 
 export default function ConvertKitForm({
   formId = `4864903`,
-  buttonText = `Get free guide`,
+  buttonText = `Get free course`,
   sideForm = true,
 }) {
   const [email, setEmail] = useState('')
@@ -29,13 +29,16 @@ export default function ConvertKitForm({
     }
   }
   return (
-    <form className="mt-4 grid max-w-lg grid-cols-8 items-end text-sm" onSubmit={handleSubmit}>
+    <form
+      className="mt-4 grid w-full max-w-lg grid-cols-8 items-end text-sm"
+      onSubmit={handleSubmit}
+    >
       <div
         className={`mb-2 ${
           sideForm ? `col-span-8 mr-1 sm:col-span-5 sm:mb-0 sm:mr-2` : `col-span-8 sm:mb-3`
         }`}
       >
-        <label className="mb-2 block font-semibold" htmlFor="magnet">
+        <label className="mb-2 block text-left font-semibold" htmlFor="magnet">
           Your email address
         </label>
         <input

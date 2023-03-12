@@ -26,13 +26,13 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
               <div>
                 <div>
                   <h1 className="mb-2 text-left text-3xl dark:text-gray-900">
-                    Learn NestJS Fundamentals
+                    Learn NestJS From The Ground Up
                   </h1>
                 </div>
                 <div className="prose max-w-none text-gray-900 dark:text-gray-700">
                   Want to use NestJS to it's full potential and understand how it really works?
-                  Check out my free guide which covers concepts like TypeScript Classes, Dependency
-                  Injection, IoC Containers and more:
+                  Check out my free NestJS course which covers concepts like TypeScript Classes,
+                  Dependency Injection, IoC Containers and more:
                 </div>
               </div>
               <ConvertKitForm />

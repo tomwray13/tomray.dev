@@ -44,9 +44,6 @@ export default function ResourceLayout({ frontMatter, children, toc }: Props) {
                   </header>
                   <div>{children}</div>
                 </div>
-                <div className="sticky top-0 hidden h-screen w-full pt-6 pb-8 pl-6 lg:block xl:pl-10">
-                  <TOCSidebar toc={toc} asDisclosure />
-                </div>
               </div>
             </div>
           </div>

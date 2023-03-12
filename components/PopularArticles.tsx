@@ -2,6 +2,7 @@ import Link from 'next/link'
 
 const PopularArticles = ({ currentPath }) => {
   const data = [
+    { title: 'NestJS course on fundamentals', path: '/nestjs-course' },
     { title: 'Ultimate guide to unit testing in NestJS', path: '/nestjs-unit-testing' },
     { title: 'How to set up and use NestJS caching', path: '/nestjs-caching-redis' },
     { title: 'Ultimate guide to logging in NestJS', path: '/nestjs-logging' },
@@ -19,7 +20,7 @@ const PopularArticles = ({ currentPath }) => {
 
   return (
     <div>
-      <h3 className="mb-1 font-bold">🔥 More popular NestJS articles:</h3>
+      <h3 className="mb-1 font-bold">🔥 Popular (free) NestJS resources:</h3>
       {listItems}
     </div>
   )

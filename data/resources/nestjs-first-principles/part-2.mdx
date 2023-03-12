@@ -1,0 +1,147 @@
+---
+title: 'NestJS First Principles - Part 2'
+h1: NestJS Course - Part 2
+date: '2023-03-12'
+lastmod: '2023-03-12'
+draft: false
+summary: NestJS First Principles.
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: true
+---
+
+This is part 2 in the 3 part email course on NestJS.
+
+## 💉 Dependency Injection
+
+In the previous lesson, we covered TypeScript Classes using some Tweet based examples.
+
+Let's update our `TweetService` example to see how dependency injection works.
+
+Please note this is not production-ready code - just an example to demonstrate how dependency injection works.
+
+```ts
+import { createClient } from 'redis'
+
+class TweetService {
+  constructor() {}
+
+  getTweet(id: string) {
+    const cache = createClient()
+    const tweetInCache = cache.get(`tweetId`, id)
+    if (tweetInCache) return tweetInCache
+    // ... continue with function
+  }
+
+  // ... other methods
+}
+```
+
+The code is fairly straightforward - in the `getTweet()` method, we're creating a Redis client and then trying to get a tweet from the cache. If the tweet is in the cache, we return it. If not, we continue with the function.
+
+In this example, the Redis client is a dependency.
+
+A dependency is when the code depends on something for it to work. If you were to remove that thing, the code would break.
+
+Even though the above code will work, challenges will arise as the project grows:
+
+- **Coupling:** The Redis client is set up inside the `getTweet` method. What if we want to use the Redis client in another method in the class? Or what if we want to use Redis in another class entirely?
+- **Testing:** When adding unit tests for the `getTweet` method, we'll want to test the end result of the method to ensure it works as expected. One of these unit tests might depend on the cache. To make the test reliable and non-brittle, it would be better to mock the cache to a predefined state (rather than use an actual Redis instance) which is not possible with the current set up.
+- **Dependency updates:** What happens in the future if we want to use a different caching provider than Redis? In our current set up, we'd need to update the code everywhere the cache methods are called.
+
+All of these challenges are exactly what dependency injection solves well. Let's update our code to use dependency injection!
+
+Let's update the `TweetsService` to inject the cache dependency:
+
+```ts
+interface Cache {
+  get(key: string): Promise<any>
+  set(key: string, value: any): Promise<any>
+}
+
+class TweetService {
+  constructor(private cache: Cache) {}
+
+  getTweet(id: string) {
+    const tweetInCache = this.cache.get(`tweetId:${id}`)
+    if (tweetInCache) return tweetInCache
+    // ... continue with function
+  }
+
+  // ... other methods
+}
+```
+
+When you use this class, you'll need to pass in what's defined in the constructor:
+
+```ts
+import { createClient } from 'redis'
+
+const cache = createClient()
+const tweetService = new TweetService(cache) // cache passed in as argument as defined in the constructor
+```
+
+You'll also notice that the argument passed into the constructor has a type of `Cache`, using the respective interface:
+
+```ts
+interface Cache {
+  get(key: string): Promise<any>
+  set(key: string, value: any): Promise<any>
+}
+```
+
+Typing the constructor `cache` argument with this interface means that whatever you pass in as the cache variable, it needs to have these methods defined.
+
+Nice! Let's go back to our original 3 challenges and see if the refactored code solves them:
+
+- **Coupling:** The caching is no longer tightly coupled inside the `getTweet` method. In fact, caching can now be used in any of the other methods in the class, or used in other classes entirely.
+- **Testing:** We can now pass in a mocked instance of the cache (as long as the mocked instance uses the contract defined in the `Cache` interface!) which can then be used to write non-brittle tests.
+- **Dependency updates:** If you decide to stop using Redis and go with a different caching solution, as long as the dependency can meet the contract defined in the `Cache` interface, we'd only need to update the code in 1 place in our example.
+
+So, hopefully, the above example illustrates well the problems dependency injection solve.
+
+## 📦 IoC (Inversion of Control) Container
+
+Let's extend our example into a simple Express server with a few classes and injections going on to create a router:
+
+```ts
+// ... import respective classes
+import express from 'express'
+
+const port = process.env.port || 5000
+const app = express()
+
+const logger = new Logger(console)
+const tweetRepository = new TweetRepository(logger)
+const tweetService = new TweetService(logger, cache, tweetRepository)
+const tweetController = new TweetController(logger, tweetService)
+
+app.use(`/tweets`, tweetController.routes())
+app.listen(port, () => console.log(`listening on port: ${port}`))
+```
+
+Each class needs instantiating (to use it) before passing it into another class as a dependency.
+
+This approach works - but imagine you have 100s of 'injectable' classes. That'd be a lot of class instantiation and injection.
+
+That's what an IoC container handles for you (also known as a DI container) - you delegate the instantiation of the classes and their dependencies to the container.
+
+For example, let's update our above example to use [TSyringe](https://github.com/microsoft/tsyringe), a DI container that is quite similar to the NestJS DI container:
+
+```ts
+// ... import respective classes
+import 'reflect-metadata'
+import express from 'express'
+import { container } from 'tsyringe'
+
+const port = process.env.port || 5000
+const app = express()
+
+const tweetController = container.resolve(TweetController)
+
+app.use(`/tweets`, tweetController.routes())
+app.listen(port, () => console.log(`listening on port: ${port}`))
+```
+
+It does kind of feel like magic. We no longer need to instantiate all the classes, we just need to define our entry point for the container and the rest is taken care of.
+
+Please note the above code example doesn't cover the whole story. To use TSyringe, you'll need to add `@autoInjectable` TypeScript decorators to the injectable classes (kind of similar to NestJS!). I recommend watching [this tutorial](https://www.youtube.com/watch?v=D1kM5W9r85Q) to take the above example further.
