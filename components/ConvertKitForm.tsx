@@ -23,7 +23,7 @@ export default function ConvertKitForm({
         },
         method: 'POST',
       })
-      Router.push(`/almost/nestjs-cheat-sheet`)
+      Router.push(`/almost/nestjs-first-principles`)
     } catch (error) {
       setLoading(false)
     }
