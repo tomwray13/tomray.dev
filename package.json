@@ -64,7 +64,7 @@
     "eslint-plugin-prettier": "^4.0.0",
     "file-loader": "^6.0.0",
     "husky": "^6.0.0",
-    "inquirer": "^8.2.4",
+    "inquirer": "^9.1.5",
     "lint-staged": "^12.4.1",
     "next-remote-watch": "^1.0.0",
     "prettier": "^2.5.1",
