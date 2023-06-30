@@ -2,13 +2,13 @@
 title: 'Ultimate Guide: NextJS, NestJS & TRPC Monorepo [Updated 2023]'
 h1: 'Building a full-stack, fully type-safe pnpm monorepo with NestJS, NextJS & tRPC'
 date: '2023-06-18'
-lastmod: '2023-06-18'
+lastmod: '2023-06-30'
 draft: false
-summary: Discover how to create a fully type-safe pnpm monorepo using NestJS and NextJS. This comprehensive tutorial covers the integration of tRPC as the API layer, providing end-to-end type safety for your full-stack TypeScript application.
+summary: Discover how to create a fully type-safe pnpm monorepo using NestJS, NextJS and tRPC. This comprehensive tutorial covers the integration of tRPC as the API layer, providing end-to-end type safety for your full-stack TypeScript application, as well as deploying both apps to Railway.
 images: ['/static/images/nestjs-nextjs-trpc/banner.png']
 ---
 
-In this tutorial, we're going to start from scratch and build a full-stack, end-to-end type-safe pnpm monorepo with [NestJS](https://nestjs.com/), [NextJS 13](https://nextjs.org/docs) (using the new `/app` directory) & [tRPC](https://trpc.io/).
+In this tutorial, we're going to start from scratch and build a full-stack, end-to-end type-safe pnpm monorepo with [NestJS](https://nestjs.com/), [NextJS 13](https://nextjs.org/docs) (using the new `/app` directory) & [tRPC](https://trpc.io/). We'll also cover deployment with [Railway](https://railway.app/) 🚝.
 
 I have fallen in love with this tech stack as the developer experience is SO good! I'm pretty sure you will too if you keep reading 😉.
 
@@ -281,7 +281,7 @@ In the project root, open up the `package.json` file and add a new script called
 
 ```json:package.json
 {
-  "name": "blueprint",
+  "name": "nextjs-nestjs-trpc",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -371,7 +371,7 @@ Let's now get to the fun part...
 
 ## Using tRPC with NestJS & NextJS
 
-Before diving in, it's worth exploring why using tRPC with NestJS and NextJS is a good idea.
+We'll first add the tRPC server in the NestJS app, then add the tRPC client in the NextJS app. Let's go!
 
 ### Adding the tRPC server to NestJS
 
@@ -677,6 +677,143 @@ export default function ClientSide() {
 ```
 
 And that's it! You'll see everything is fully typed in your IDE, giving you errors if you try to access a property that doesn't exist from the returned query.
+
+## Deploying to Railway
+
+This kind of tutorial is not complete without discussing deployment!
+
+We're now going to deploy both the NestJS and NextJS apps to Railway (who have a free plan!).
+
+Before diving into that, we'll first need to make a small tweak to the tRPC client in the NextJS app.
+
+Right now, the url points to the local NestJS server:
+
+```ts:trpc.ts
+import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
+import { AppRouter } from '@server/trpc/trpc.router'
+
+export const trpc = createTRPCProxyClient<AppRouter>({
+  links: [
+    httpBatchLink({
+      url: "http://localhost:4000/trpc", // you should update this to use env variables
+    }),
+  ],
+});
+```
+
+This won't work when deployed - we want to point to the respective NestJS deployed server instead.
+
+Let's use an environment to configure this:
+
+```ts:trpc.ts
+import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
+import { AppRouter } from "@server/trpc/trpc.router";
+
+export const trpc = createTRPCProxyClient<AppRouter>({
+  links: [
+    httpBatchLink({
+      url: `${process.env.NEXT_PUBLIC_NESTJS_SERVER}/trpc`,
+    }),
+  ],
+});
+
+```
+
+And then add an `env.local` file to the root of your NextJS app (inside the `/web` directory) and add the environment variable there:
+
+```env:env.local
+NEXT_PUBLIC_NESTJS_SERVER=http://localhost:4000
+```
+
+Next, we need to define some scripts at the root of the monorepo that Railway can use for building and spinning up the servers.
+
+In the root of your monorepo, open up the `package.json` and add the following 4 new scripts:
+
+```json:package.json
+{
+  "name": "nextjs-nestjs-trpc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "build:server": "pnpm --filter server build",
+    "build:web": "pnpm --filter web build",
+    "start:server": "pnpm --filter server start:prod",
+    "start:web": "pnpm --filter web start",
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+```
+
+Okay nice! We've now got everything set up to deploy to Railway.
+
+In Railway, add a new project and select "Empty project":
+
+![Add new Railway project](/static/images/nestjs-nextjs-trpc/railway-newProject.png)
+
+Then add a service, choosing Github repo (make sure you choose the monorepo Github project that you've built in this tutorial):
+
+![Add Railway service](/static/images/nestjs-nextjs-trpc/railway-addService.png)
+
+This will create a new service and try to deploy it. The deployment will fail as we need to add some extra config to get it to work!
+
+This first service will be the NestJS server. Let's add the respective config options for that.
+
+Open up the service you just created and navigate to the settings. Here you should update the service name to "server":
+
+![Rename Railway service](/static/images/nestjs-nextjs-trpc/railway-renameService.png)
+
+Then scroll down to the build and deploy sections. Add the respective build and start commands for the NestJS app:
+
+- Build command: `pnpm build:server`
+- Start command: `pnpm start:server`
+
+Also, set the Watch paths to `/apps/server/**`. This will mean the NestJS server is only re-deployed if the respective directory has any file changes in it.
+
+It should look like this:
+
+![Add Railway build command](/static/images/nestjs-nextjs-trpc/railway-buildCommand.png)
+
+If you have any environment variables in your NestJS app, now's the time to define them! Go to the Variables tab and add them there.
+
+If you now go to the deployment tab, you should see the app has now deployed 🎉:
+
+![How to use environment variables in NestJS with the Config Module](/static/images/nestjs-nextjs-trpc/railway-deployment.png)
+
+The deployment, however, is not exposed to the public internet yet. So go back to the Settings tab and press the Generate Domain button. Railway will create a random URL for you.
+
+Give it a few seconds, then open up the generated URL in the browser to see your NestJS server deployed!
+
+![Deployed NestJS app](/static/images/nestjs-nextjs-trpc/railway-serverUrl.png)
+
+Make a note of the deployed url (for me, it's [https://server-production-9044.up.railway.app/](https://server-production-9044.up.railway.app)) as we'll need to add it as an environment variable to the NextJS deployed app.
+
+Let's now deploy the NextJS app.
+
+To do this, you can repeat the same steps as above:
+
+1. Add a new service, choosing the same Github repo
+2. Rename the service (I renamed mine to `web`)
+3. Add the build command: `pnpm build:web`
+4. Add the start command: `pnpm start:web`
+5. Set the Watch paths to: `/apps/web/**`
+
+The only extra thing we need to do in the NextJS service is add the `NEXT_PUBLIC_NESTJS_SERVER` environment variable.
+
+Go into the Variables tab and add the environment variable, using your deployed server URL as the value (make sure you don't include the `/` at the end of the url):
+
+![Railway environment variables](/static/images/nestjs-nextjs-trpc/railway-webVariables.png)
+
+After the successful deployment, go back to the Settings tab and generate a public domain as you did for the server app.
+
+After a few seconds, press the link and check out your deployed NextJS app!
+
+![Deployed NextJS app on Railway](/static/images/nestjs-nextjs-trpc/railway-webUrl.png)
+
+Nice work - both apps are now deployed!
 
 ## Conclusion
 
