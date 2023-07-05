@@ -7,6 +7,7 @@ import TOCInline from './TOCInline'
 import Pre from './Pre'
 import { BlogNewsletterForm } from './NewsletterForm'
 import Magnet from './Magnet'
+import YoutubeEmbed from './YoutubeEmbed'
 
 const Wrapper: React.ComponentType<{ layout: string }> = ({ layout, ...rest }) => {
   const Layout = require(`../layouts/${layout}`).default
@@ -23,6 +24,7 @@ export const MDXComponents: ComponentMap = {
   //@ts-ignore
   BlogNewsletterForm,
   Magnet,
+  YoutubeEmbed,
 }
 
 interface Props {
