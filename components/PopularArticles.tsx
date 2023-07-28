@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 const PopularArticles = ({ currentPath }) => {
   const data = [
-    { title: 'NestJS course on fundamentals', path: '/nestjs-course' },
+    { title: 'NestJS course on fundamentals', path: '/nestjs-fundamentals-course' },
     { title: 'Ultimate guide to unit testing in NestJS', path: '/nestjs-unit-testing' },
     { title: 'How to set up and use NestJS caching', path: '/nestjs-caching-redis' },
     { title: 'Ultimate guide to logging in NestJS', path: '/nestjs-logging' },

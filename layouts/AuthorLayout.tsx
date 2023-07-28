@@ -45,9 +45,9 @@ export default function PostLayout({ frontMatter, children }: Props) {
               <div className="lg:flex">
                 <div className="prose mx-auto max-w-2xl pt-6 pb-8 dark:prose-dark">{children}</div>
               </div>
-              <div className="mx-auto max-w-2xl">
+              {/* <div className="mx-auto max-w-2xl">
                 <Comments frontMatter={frontMatter} />
-              </div>
+              </div> */}
             </div>
           </div>
         </div>
