@@ -9,6 +9,7 @@ export default function NestJSCourse() {
       <PageSEO
         title="NestJS Course: Learn By Building Projects"
         description="Learn NestJS by building projects"
+        imageUrl="https://i.imgur.com/PIoMEsX.png"
       />
       <div>
         <div className="polka full-screen mb-8 text-center">
@@ -93,6 +94,11 @@ export default function NestJSCourse() {
             the course launches.
           </p>
           <ConvertKitForm formId="5405777" buttonText="Join Waiting List" />
+          <p>
+            In the meantime, if you're looking to learn some NestJS fundamentals, check out my{' '}
+            <Link href="/nestjs-fundamentals-course">free course</Link> which is available right now
+            🙃.
+          </p>
         </div>
       </div>
     </>

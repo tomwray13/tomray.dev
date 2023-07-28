@@ -20,6 +20,7 @@ export default function Home({ posts }: InferGetStaticPropsType<typeof getStatic
       <PageSEO
         title="NestJS Course: Launch Updates"
         description="I'm building this course in public and will be sharing updates as I go."
+        imageUrl="https://i.imgur.com/PIoMEsX.png"
       />
       <div>
         <h3 className="polka full-screen mb-8">

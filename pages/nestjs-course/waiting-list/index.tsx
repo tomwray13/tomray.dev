@@ -8,6 +8,7 @@ export default function NestJSCourse() {
       <PageSEO
         title="NestJS Course: You're on the waiting list!"
         description="You're on the waiting list for course: Learn NestJS by building projects"
+        imageUrl="https://i.imgur.com/PIoMEsX.png"
       />
       <div>
         <div>

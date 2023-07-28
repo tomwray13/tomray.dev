@@ -60,10 +60,11 @@ const CommonSEO = ({
 interface PageSEOProps {
   title: string
   description: string
+  imageUrl?: string
   isHiddenFromSearch?: boolean
 }
 
-export const PageSEO = ({ title, description, isHiddenFromSearch }: PageSEOProps) => {
+export const PageSEO = ({ title, description, isHiddenFromSearch, imageUrl }: PageSEOProps) => {
   const ogImageUrl = siteMetadata.siteUrl + siteMetadata.socialBanner
   const twImageUrl = siteMetadata.siteUrl + siteMetadata.socialBanner
   return (
@@ -71,8 +72,8 @@ export const PageSEO = ({ title, description, isHiddenFromSearch }: PageSEOProps
       title={title}
       description={description}
       ogType="website"
-      ogImage={ogImageUrl}
-      twImage={twImageUrl}
+      ogImage={imageUrl ? imageUrl : ogImageUrl}
+      twImage={imageUrl ? imageUrl : twImageUrl}
       isHiddenFromSearch={isHiddenFromSearch}
     />
   )
