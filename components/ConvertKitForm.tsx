@@ -12,6 +12,7 @@ export default function ConvertKitForm({
   const handleSubmit = async (event) => {
     setLoading(true)
     event.preventDefault()
+    const redirect = formId === `4864903` ? `nestjs-first-principles` : `nestjs-course`
     try {
       await fetch(`/api/convertkit`, {
         body: JSON.stringify({
@@ -23,7 +24,7 @@ export default function ConvertKitForm({
         },
         method: 'POST',
       })
-      Router.push(`/almost/nestjs-first-principles`)
+      Router.push(`/almost/${redirect}`)
     } catch (error) {
       setLoading(false)
     }

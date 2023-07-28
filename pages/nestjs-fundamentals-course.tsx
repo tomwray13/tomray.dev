@@ -5,7 +5,10 @@ import { PageSEO } from '@/components/SEO'
 export default function NestJSCourse() {
   return (
     <>
-      <PageSEO title="NestJS Course" description="Learn NestJS by building projects" />
+      <PageSEO
+        title="NestJS Fundamentals Course"
+        description="A NestJS course that covers key concepts like TypeScript Classes, Dependency Injection, IoC Containers and more."
+      />
       <div>
         <div className="polka full-screen mb-8 text-center">
           <div className="mx-auto max-w-2xl px-4 sm:px-6 xl:px-0">
