@@ -9,6 +9,7 @@ export default function NestJSCourse() {
         title="NestJS Course: You're on the waiting list!"
         description="You're on the waiting list for course: Learn NestJS by building projects"
         imageUrl="https://i.imgur.com/PIoMEsX.png"
+        isHiddenFromSearch
       />
       <div>
         <div>
