@@ -1,6 +1,7 @@
 /* eslint-disable @next/next/no-img-element */
 import ConvertKitForm from '@/components/ConvertKitForm'
 import { PageSEO } from '@/components/SEO'
+import Link from 'next/link'
 
 export default function NestJSCourse() {
   return (
@@ -47,8 +48,9 @@ export default function NestJSCourse() {
 
           <h2>Who is making this course?</h2>
           <p>
-            👋 Hi! I'm Tom, a proud JS/TS dev from Brighton, UK. My blog on NestJS is one of the
-            biggest on the internet. Just last month over 20,000 developers read my tutorials!
+            👋 Hi! I'm <Link href="/about">Tom</Link>, a proud JS/TS dev from Brighton, UK. Through
+            my blog, I've helped over 20,000 NestJS developers learn through build cool projects and
+            practical tutorials.
           </p>
 
           <h2>Get the free course</h2>
