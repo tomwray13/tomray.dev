@@ -1,0 +1,366 @@
+---
+title: 'Project 0 - NestJS Starter'
+h1: Project 0 - NestJS Starter
+date: '2023-07-23'
+lastmod: '2023-07-23'
+draft: false
+summary: Project 0 - NestJS Starter
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: false
+---
+
+Please make sure you've installed the pre-requisites before starting!
+
+## Intro
+
+In this first project, we're going to build a NestJS starter repo which will act as a foundation for all other projects in the course.
+
+We're actually going to build 2 NestJS starter projects:
+
+1. Standard NestJS Starter (for projects with just a single NestJS server)
+2. Monorepo NestJS Starter (for projects with multiple apps, e.g. a NestJS server & NextJS server)
+
+Then at the start of each project, we'll `git clone` the most relevant starter project so we can skip a bunch of admin and setup each time we start a project.
+
+The starter repos will also serve as excellent NestJS starter repos for any future projects you start outside of the course!
+
+Here's what's included in the starter repos:
+
+- Adding to the tsconfig.json file
+- Setting up the ConfigModule and environment variables for Jest
+- Configuring some basic HTTP security
+- Adding whitelisted validation to the NestJS server
+
+- Docker compose set up for a Postgres database and Redis cache
+- Prisma setup (the ORM we'll be using in each project to interact with the database)
+- Jest config (including env variables)
+- Setting up NestJS caching
+- Setting up NestJS logging
+- TODO: any prisma script required for deployment
+- Setting up a CI Pipeline using Github Actions
+
+Here is the Github repo if you'd like to check out the finished starter, but I do recommend creating your own starter by following this project.
+
+## Using the Nest CLI to spin up the project
+
+The first step is to use the Nest CLI to spin up a new project.
+
+```shell
+npx nest new nestjs-starter --package-manager=pnpm --strict
+```
+
+We passed in a couple of options worth noting:
+
+`--package-manager=pnpm` - setting the package manager to use pnpm
+`--strict` - by default when NestJS scaffolds projects it doesn't use strict mode in TypeScript
+
+With your project now set up, let's proceed!
+
+## Adding to the tsconfig.json file
+
+It's worth adding a couple of extra configs to the `tsconfig.json` file to help you write better code:
+
+`noUnusedLocals`: Report errors on unused local variables (e.g. you declate a variable with `const` and then never user it)
+
+`noUncheckedIndexedAccess`: Prevents runtime errors caused by unexpected undefined values. This one's best explained by an example:
+
+```ts
+// define an array
+const numbers = [1, 2, 3]
+
+// access array with index 3
+const example = numbers[3]
+
+// this will cause a runtime error because index 3 does not exist!
+console.log(example.toFixed(2))
+return 'Hello World!'
+```
+
+By switching on `noUncheckedIndexedAccess`, you will be forced (you'll see the red squigly lines in your IDE) to handle the `undefined` scenario which will help prevent runtime errors. Set this in your tsconfig and thank yourself later 😉.
+
+You can add these to your tsconfig file like this:
+
+```json:tsconfig.json
+{
+  "compilerOptions": {
+    // other config options...
+    "noUnusedLocals": true,
+    "noUncheckedIndexedAccess": true
+  }
+}
+```
+
+## Add the Config Module configuration
+
+In a classic NodeJS project, you'd need to install the [dotenv](https://www.npmjs.com/package/dotenv) package to use environment variables.
+
+NestJS comes with a built-in config module (that uses the dotenv package under the hood) that you can use to read environment variables.
+
+Before installing it, it's worth first adding to your `.gitignore` file a line for `env`. I'm not sure why Nest doesn't include this in their default scaffold, but it's necessary otherwise your secret variables will be public.
+
+Your `.gitignore` file should now look like:
+
+```.gitignore
+# ...
+
+# env
+.env
+```
+
+Okay, with that set up let's install NestJS Config
+
+```bash
+pnpm add @nestjs/config
+```
+
+With the package installed, we can now use the config module.
+
+Import it into the root `AppModule` along with the `forRoot()` static method:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot(),
+  ],
+})
+export class AppModule {}
+
+```
+
+**Please note:** As you add more imports to your `app.module.ts` file, keep the `ConfigModule` as the first import. Otherwise the other imports won't have access to the environment variables.
+
+Assuming you're using the default `.env` file in your project, you'll now have access to your environment variables by using `process.env` anywhere in your NestJS app. While this approach works, it doesn't offer any type safety.
+
+Instead of using `process.env` in your NestJS app whenever you need to access an environment variable, you can instead use the NestJS ConfigModule we just set up.
+
+[Laravel](https://laravel.com/docs/9.x/configuration) uses a very similar approach where you have custom configuration files inside a `config` directory which point to environment variables.
+
+Let's add a configuration file inside the config directory and add the following::
+
+```typescript:config/configuration.ts
+export default () => ({
+  environment: process.env.NODE_ENV || `development`,
+});
+```
+
+You will need to import this configuration file into the `ConfigModule` by using the `load` property:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from './config/configuration';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      load: [config]
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+To now use the values set in the configuration file in one of the modules in our NestJS app, we'd need to import the `ConfigModule` (just like you would with any provider):
+
+```typescript:feature.module.ts
+@Module({
+  imports: [ConfigModule],
+  // ...
+})
+```
+
+That being said, I prefer to set the `isGlobal` property to true in the `ConfigModule` in `app.module.ts` so that it's available everywhere in the app (and I don't need to import the Config Module everytime).
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from './config/configuration';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [config]
+    }),
+  ],
+})
+export class AppModule {}
+
+```
+
+We won't go into any specific examples of how to use the ConfigModule inside services as that's covered plenty in the projects ahead! In the meantime, if you want to check out an example of how the ConfigService is injected into a service, check out [this tutorial](https://www.tomray.dev/nestjs-config#using-custom-configuration-files).
+
+## 🔒 Add HTTP header security
+
+Out of the box, NestJS uses the default HTTP headers which can open you up to security vulnerabilities.
+
+Thankfully, that's why [Helmet](https://helmetjs.github.io/) exists - a widely adopted and well maintained security package which provides HTTP header security out of the box to help prevent common exposures.
+
+It's also super easy to install in a NestJS app too:
+
+```shell
+pnpm add helmet
+```
+
+And then apply the package as global middleware:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import helmet from 'helmet';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.use(helmet());
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+And that's it!
+
+## Setting up a global validation pipe
+
+We'll get into setting up many different example controller routes in the projects ahead.
+
+But one thing is for sure - we'll need to set up validation across these routes to help maintain data integrity and added layers of security.
+
+In NestJS, the standard way to do this is by using DTOs (Data Transfer Objects) in combination with the `class-validator` package.
+
+For example, let's say you have an endpoint to create a user:
+
+```ts
+//... rest of the controller file
+
+@Post()
+create(@Body() createUserDto: CreateUserDto) {
+  return 'This endpoint adds a new user';
+}
+```
+
+The `CreateUserDto` could be:
+
+```ts
+import { IsEmail, IsNotEmpty } from 'class-validator'
+
+export class CreateUserDto {
+  @IsEmail()
+  email: string
+
+  @IsNotEmpty()
+  password: string
+}
+```
+
+With this in place, if the incoming client payload does not pass the validation rules defined in the DTO, it will automatically response with a `400` with the following response. For example, if an invalid email is passed in:
+
+```json
+{
+  "statusCode": 400,
+  "error": "Bad Request",
+  "message": ["email must be an email"]
+}
+```
+
+This setup, however, is NOT supported out of the box in a NestJS app, so we need to set up the foundations to support this in our NestJS starter.
+
+First install the respective packages:
+
+```bash
+pnpm add class-validator class-transformer @nestjs/mapped-types
+```
+
+Here's a brief explanation of each package:
+
+- `class-validator`: used to validate incoming request bodies, query parameters, and more, to ensure they meet the specified criteria before reaching your controller's handler methods.
+- `class-transformer`: used to transform incoming request objects into instances of specific DTOs (Data Transfer Objects), ensuring they are manipulated and interacted with according to the defined class structure.
+- `@nestjs/mapped-types`: particularly useful when you're working with DTOs that have similar shapes but slightly different requirements for various operations, such as creating and updating a resource. You can derive multiple types from a single base type, keeping your code DRY (Don't Repeat Yourself).
+
+In order for DTOs to be used across any route in the NestJS app, we need to define a global validation pipe.
+
+The ValidationPipe is one of the built-in pipes in NestJS, and it's used to validate incoming client payloads, ensuring they match the expected types and constraints. It uses class-validator and class-transformer (the packages we just installed) under the hood to accomplish this.
+
+Update your `main.ts` file to add the global validation pipe:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.use(helmet());
+  app.useGlobalPipes(new ValidationPipe()); // add global validation pipe
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+Here's a breakdown of what's happening:
+
+- `new ValidationPipe()`: This creates a new instance of the ValidationPipe class.
+- `app.useGlobalPipes()`: This method sets the pipe(s) passed into it as global pipes, which means they will be used across all the controllers and routes in the application.
+
+By using this line, you can enforce validation across the entire application, making sure that data coming into the app meets the expected criteria defined using decorators in DTO (Data Transfer Object) classes.
+
+Finally, it's worth adding the `whitelist` property to the ValidationPipe like this:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.use(helmet());
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true })); // add global validation pipe
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+If `whitelist` is set to true, the ValidationPipe will strip away properties from the input object that do not have any matching decorators in the corresponding DTO. This can be useful to automatically remove any unwanted or unexpected properties sent by the client, thus ensuring that only expected properties are being processed.
+
+## Docker Compose for Postgres & Redis
+
+For all the projects in the course we'll be using a Postgres database to store data. Occasionally we'll also use Redis as a cache store.
+
+We're going to use a Docker Compose file to set this up. You'll need Docker installed on your machine to set this up!
+
+Docker Compose is a tool that allows you to spin up 'containers' i.e. local instances of services on your machine that simulate a deployed environment.
+
+Add a `docker-compose.yml` file at the root of your project and add the following:
+
+```yml:docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:alpine
+    container_name: nestjs_postgres
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:alpine
+    container_name: nestjs_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+```
