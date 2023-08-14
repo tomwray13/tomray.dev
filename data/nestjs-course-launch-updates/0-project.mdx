@@ -28,15 +28,14 @@ Here's what's included in the starter repos:
 
 - Adding to the tsconfig.json file
 - Setting up the ConfigModule and environment variables for Jest
+- Enforcing consistent HTTP response structure
 - Configuring some basic HTTP security
 - Adding whitelisted validation to the NestJS server
-
-- Docker compose set up for a Postgres database and Redis cache
-- Prisma setup (the ORM we'll be using in each project to interact with the database)
-- Jest config (including env variables)
-- Setting up NestJS caching
 - Setting up NestJS logging
-- TODO: any prisma script required for deployment
+- Docker compose set up for a Postgres database & Redis
+- Prisma setup (the ORM we'll be using in each project to interact with the database)
+
+- Jest config (including env variables)
 - Setting up a CI Pipeline using Github Actions
 
 Here is the Github repo if you'd like to check out the finished starter, but I do recommend creating your own starter by following this project.
@@ -115,22 +114,37 @@ pnpm add @nestjs/config
 
 With the package installed, we can now use the config module.
 
-Import it into the root `AppModule` along with the `forRoot()` static method:
+We're going to add a `/common` directory and respective module which will be a place where we can add services that can be used across the entire application.
 
-```typescript:app.module.ts
+After adding the `/common` directory, add a new file called `common.module.ts` and include the `ConfigModule` along with the `forRoot()` static method:
+
+```ts:common.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot(),
-  ],
+  imports: [ConfigModule.forRoot(),],
+  providers: [],
+  exports: [],
+})
+export class CommonModule {}
+```
+
+Also make sure you import this module into the main `app.module.ts` module:
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { CommonModule } from './common/common.module';
+
+@Module({
+  imports: [CommonModule],
+  // ...
 })
 export class AppModule {}
 
 ```
 
-**Please note:** As you add more imports to your `app.module.ts` file, keep the `ConfigModule` as the first import. Otherwise the other imports won't have access to the environment variables.
+**Please note:** As you add more imports to the `CommonModule`, always keep the `ConfigModule` as the first import. Also make sure the `CommonModule` is the first import inside the `AppModule`. Otherwise the other imports won't have access to the environment variables.
 
 Assuming you're using the default `.env` file in your project, you'll now have access to your environment variables by using `process.env` anywhere in your NestJS app. While this approach works, it doesn't offer any type safety.
 
@@ -157,10 +171,12 @@ import config from './config/configuration';
   imports: [
     ConfigModule.forRoot({
       load: [config]
-    }),
+    })
   ],
+  providers: [],
+  exports: [],
 })
-export class AppModule {}
+export class CommonModule {}
 
 ```
 
@@ -185,14 +201,88 @@ import config from './config/configuration';
     ConfigModule.forRoot({
       isGlobal: true,
       load: [config]
-    }),
+    })
   ],
+  providers: [],
+  exports: [],
 })
-export class AppModule {}
+export class CommonModule {}
 
 ```
 
 We won't go into any specific examples of how to use the ConfigModule inside services as that's covered plenty in the projects ahead! In the meantime, if you want to check out an example of how the ConfigService is injected into a service, check out [this tutorial](https://www.tomray.dev/nestjs-config#using-custom-configuration-files).
+
+## Enforcing consistent HTTP response structure
+
+By wrapping all HTTP responses in a standard structure, you make it easier for clients consuming the API to know what to expect. They can rely on the response always having the same shape, regardless of the specific endpoint.
+
+This can be achieved in NestJS using an interceptor. Interceptors in NestJS allow you to execute logic before or after the main handler (such as a controller method) is called, making them a perfect fit for this use case.
+
+Inside the `/common` directory, add a new directory called `/interceptors` and create a new file called `transform-response.interceptor.ts`:
+
+```ts:transform-response.interceptor.ts
+import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+
+@Injectable()
+export class TransformResponseInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    return next.handle().pipe(
+      map(data => ({ data })),
+    );
+  }
+}
+```
+
+What's this code doing?
+
+It's intercepting the response from the controller and wrapping it in an object with a `data` property. This means that the response will always have the same shape, regardless of the specific endpoint.
+
+Specifically, here's more detail breaking down the code:
+
+- Class Definition `TransformResponseInterceptor {}`: This class is going to define our custom interceptor. It implements the NestJS `NestInterceptor` interface, which requires us to implement a single method called `intercept()`.
+- Method `intercept()`: This is where the action happens. It receives the current context, which has information about the current request, and next, which lets us handle the request and response.
+- Handling the Response `next.handle()`: Here, we are saying, "Go on and handle the request as you normally would, and let me know when you have a response ready."
+- Using `pipe` with `map`: This part is where we are telling NestJS what to do with the response once it's ready.
+- `pipe`: Think of this as a way to funnel the response through a series of transformations.
+- `map`: This is the transformation we want to apply. We're saying, "Take the response and wrap it inside an object with a single property called data."
+
+Why bother with doing this?
+
+- **Consistency**: This interceptor provides a simple but powerful way to ensure that your API has a consistent and well-defined interface.
+- **Ease of Extension**: If you decide later that you want to include additional metadata in every response (such as headers for rate limiting or custom diagnostic information), you can do so in the interceptor without having to modify every individual controller.
+- **Separation of Concerns**: By handling the response transformation in an interceptor, you keep this logic separate from your actual business logic in the controllers. This can make the code easier to understand, test, and maintain.
+
+To implement this interceptor, inside your `common.module.ts` file, add the following:
+
+```typescript:app.module.ts
+import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ConfigModule } from '@nestjs/config';
+import config from './config/configuration';
+import { TransformResponseInterceptor } from '../common/interceptors/transform-response.interceptor';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [config]
+    })
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TransformResponseInterceptor,
+    }
+  ],
+  exports: [],
+})
+export class CommonModule {}
+
+```
+
+Test an API request and the response should now be wrapped in an object with a `data` property.
 
 ## 🔒 Add HTTP header security
 
@@ -328,9 +418,307 @@ bootstrap();
 
 If `whitelist` is set to true, the ValidationPipe will strip away properties from the input object that do not have any matching decorators in the corresponding DTO. This can be useful to automatically remove any unwanted or unexpected properties sent by the client, thus ensuring that only expected properties are being processed.
 
+## Setting up logging in NestJS
+
+Logging is an important part of any application. It allows you to see what's happening in your application and debug issues.
+
+Nest has a built in logger you can use, but I prefer to use a dedicated logging module which supports JSON logging which is useful for aggregating logs in a production environment.
+
+This is taken from the [NestJS docs](https://docs.nestjs.com/techniques/logger):
+
+> Nest's built-in logger is used for monitoring Nest system behavior, and can also be useful for basic formatted text logging in your feature modules while in development, but production applications often take advantage of dedicated logging modules like Winston.
+
+Let's now build a dedicated logging module that supports JSON. We're going to use Winston as the logging library, so let's first install the package:
+
+```shell
+pnpm add winston
+```
+
+Inside the `/common` directory, create a new directory called `logger` and add a file called `logger.service.ts`
+
+```ts:logger.service.ts
+// logger.service.ts
+import { Injectable, LoggerService } from '@nestjs/common';
+import * as winston from 'winston';
+
+@Injectable()
+export class Logger implements LoggerService {
+  private readonly logger: winston.Logger;
+
+  constructor() {
+    this.logger = winston.createLogger({
+      level: 'info', // Set your desired default log level
+      format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.json(),
+      ),
+      transports: [
+        new winston.transports.Console(),
+        // Add other transports like file or cloud-based logging solutions
+      ],
+    });
+  }
+
+  log(message: any, context?: string, meta?: any) {
+    this.logger.info(message, {
+      context,
+      meta,
+    });
+  }
+
+  error(message: any, trace?: string, context?: string, meta?: any) {
+    this.logger.error(message, {
+      context,
+      trace,
+      meta,
+    });
+  }
+
+  warn(message: any, context?: string, meta?: any) {
+    this.logger.warn(message, {
+      context,
+      meta,
+    });
+  }
+
+  debug(message: any, context?: string, meta?: any) {
+    this.logger.debug(message, {
+      context,
+      meta,
+    });
+  }
+
+  verbose(message: any, context?: string, meta?: any) {
+    this.logger.verbose(message, {
+      context,
+      meta,
+    });
+}
+```
+
+You'll notice I've included a `meta` argument in each log which allows you to pass in any extra data to each log if you want to give additional context.
+
+You'll also notice in the `error` log method I've included a way to include the stack trace. This could be used like the following:
+
+```ts
+try {
+  // Some code that might throw an error
+} catch (error) {
+  const message = 'An unexpected error occurred!'
+  // Optionally, you can use the error message itself
+  // const message = error.message;
+
+  const trace = error.stack // Get the stack trace of the error
+  const context = 'MyService' // Replace with your specific context
+
+  this.logger.error(error, trace, context)
+}
+```
+
+Let's give the logger a quick test.
+
+Inside any existing service, inject the logger service you just made and do a log.
+
+Here's an example of how to do it in the `app.service.ts` file:
+
+```ts:app.service.ts
+import { Injectable } from '@nestjs/common';
+import { Logger } from '../common/logger/logger.service';
+
+@Injectable()
+export class AppService {
+  constructor(private readonly logger: Logger) {}
+
+  getHello(): string {
+    this.logger.log('Hello World!');
+    return 'Hello World!';
+  }
+}
+```
+
+This should print to your console:
+
+```shell
+{
+   "context": "MyContext",
+   "message": "Hello World!",
+   "level": "info",
+   "timestamp": "2023-08-10T10:00:00.000Z"
+}
+
+```
+
+Make sure you import the logger service into the `common.module.ts` file and add it to the `providers` array:
+
+```ts:common.module.ts
+import { Global, Module } from '@nestjs/common';
+import { Logger } from './logger/logger.service';
+import { ConfigModule } from '@nestjs/config';
+import config from '../config';
+
+@Global() // <-- Add this decorator
+@Module({
+  imports: [ConfigModule.forRoot({ isGlobal: true, load: [config] })],
+  providers: [Logger], // <-- Add as provider
+  exports: [Logger], // <-- Add as export
+})
+export class CommonModule {}
+
+```
+
+You'll notice I've also added the `Global()` decorator - this is because we want to make all services (right now just the Logger service) inside this module available to the entire application.
+
+The JSON formatting of logs is super practicle in production as it allows you to easily aggregate logs in a centralised logging solution so you can query the logs easily and create dashboards from the logs.
+
+However, in local development it's a little difficult to read, so let's tweak the logging service to prettify the logs in local development only.
+
+```ts:logger.service.ts
+import { Injectable, LoggerService } from '@nestjs/common';
+import * as winston from 'winston';
+
+@Injectable()
+export class Logger implements LoggerService {
+  private readonly logger: winston.Logger;
+
+  constructor() {
+    const { combine, timestamp, printf, colorize, json } = winston.format;
+
+    // Determine if the application is running in development mode
+    const isDevelopment = process.env.NODE_ENV === 'development';
+
+    // Choose a format based on the environment
+    const logFormat = isDevelopment
+      ? combine(
+          colorize(),
+          timestamp(),
+          printf(({ level, message, timestamp, context, meta, trace }) => {
+            return `${timestamp} ${level}: [${context}] ${message} ${
+              meta ? JSON.stringify(meta) : ''
+            } ${trace ? JSON.stringify(trace) : ''}`;
+          }),
+        )
+      : combine(timestamp(), json());
+
+    this.logger = winston.createLogger({
+      level: 'info',
+      format: logFormat,
+      transports: [
+        new winston.transports.Console(),
+        // Add other transports like file or cloud-based logging solutions
+      ],
+    });
+  }
+
+  // ... the log methods
+}
+
+```
+
+Nice! If you try and do a log again, you'll see the logs are now prettified in local development.
+
+It would also be useful to log each HTTP request that hits our NestJS server. We can do this by creating a middleware that logs each request.
+
+Inside the `/logger` directory, create a new file called `logger.middleware.ts`:
+
+```ts:logger.middleware.ts
+// request-logger.middleware.ts
+import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+import { Logger } from './logger.service';
+
+@Injectable()
+export class RequestLoggerMiddleware implements NestMiddleware {
+  constructor(private readonly logger: Logger) {}
+
+  use(req: Request, res: Response, next: NextFunction) {
+    const start = Date.now();
+    const { method, url, headers, query, body } = req;
+
+    res.on('finish', () => {
+      const responseTime = Date.now() - start;
+      const message = `${method} ${url} ${res.statusCode} ${responseTime}ms`;
+      const statusCode = res.statusCode;
+      const logData = {
+        responseTime,
+        method,
+        url,
+        headers,
+        query,
+        body,
+      };
+
+      if (statusCode >= 500) {
+        this.logger.error(message, undefined, `HTTP`, logData);
+      } else if (statusCode >= 400) {
+        this.logger.warn(message, `HTTP`, logData);
+      } else {
+        this.logger.log(message, `HTTP`, logData);
+      }
+    });
+
+    next();
+  }
+}
+
+```
+
+This code is basically just logging the request and response data for each HTTP request that hits our server. It includes lots of useful stuff, like how long the request took, the request method, the URL, the headers, the query params, and the body.
+
+Now we need to register this middleware in our application, otherwise it won't work.
+
+For global middleware (i.e applied across all routes), it's typically best practice to apply it in the `app.module.ts` file so it's clear it applies to all routes.
+
+Open the `app.module.ts` file and apply the middleware as shown here:
+
+```ts:app.module.ts
+import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { LoggerMiddleware } from './common/logger/logger.middleware';
+
+@Module({
+  // ...
+})
+export class AppModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}
+
+```
+
+Now fire off a HTTP request into your NestJS app and see the logs in your console! Feel free to edit the message in the log to whatever you want in the LoggerMiddleware.
+
+You may have notice some of the automated NestJS logs:
+
+- When the Nest app starts
+- When there is a missing dependency
+- When an error bubbles up to the NestJS's built in exception filter
+
+These logs are useful, but they don't use our custom logger service. This would be great to set up so all our logs are consistend. Let's update them to use our custom logger service.
+
+You just need to update the `main.ts` file to use our custom logger service.
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { logger: new Logger() }); // <-- Edit this line
+  app.use(helmet());
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+  await app.listen(3000);
+}
+bootstrap();
+```
+
+Now the built-in NestJS logs will use our custom logger service.
+
 ## Docker Compose for Postgres & Redis
 
-For all the projects in the course we'll be using a Postgres database to store data. Occasionally we'll also use Redis as a cache store.
+For all the projects in the course we'll be using a Postgres database to store data. We'll also be using Redis for caching.
 
 We're going to use a Docker Compose file to set this up. You'll need Docker installed on your machine to set this up!
 
@@ -342,9 +730,9 @@ Add a `docker-compose.yml` file at the root of your project and add the followin
 version: '3.8'
 
 services:
-  postgres:
+  nestjs_postgres: # Needs updating
     image: postgres:alpine
-    container_name: nestjs_postgres
+    container_name: nestjs_postgres # Needs updating
     restart: always
     env_file:
       - .env
@@ -356,11 +744,239 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  redis:
+  nestjs_redis: # Needs updating
     image: redis:alpine
-    container_name: nestjs_redis
+    container_name: nestjs_redis # Needs updating
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+```
+
+I've left a few comments in there as reminders to update those names to something more specific to your project. We'll do this in each project we set up.
+
+To spin up the Postgres & Redis containers, run the following command:
+
+```bash
+docker-compose up -d
+```
+
+To run your NestJS server locally, you'll need to run:
+
+```bash
+pnpm start:dev
+```
+
+It's a little annoying to run 2 commands everytime you need to spin up the local server, so let's add a single script to do both.
+
+Inside the package.json file, add the following script:
+
+```json
+"scripts": {
+  // other scripts
+  "docker:start": "docker-compose up -d",
+},
+```
+
+And then update the existing `start:dev` script to run both commands:
+
+```json
+"scripts": {
+  // other scripts
+  "start:dev": "pnpm docker:start && pnpm start:dev",
+},
+```
+
+Nice! Now you can run `pnpm start:dev` to spin up the local server and the Postgres container.
+
+## Setting up Prisma
+
+In the projects ahead, we're going to use Prisma as the ORM layer to interact with the database.
+
+We'll be covering lots of Prisma in the course, but for now we just need to set up the foundations that can be leveraged by projects later.
+
+In the root of the project, run the following command:
+
+```shell
+npx prisma init
+```
+
+This does two things:
+
+1. Creates a directory called `prisma` with a file inside called `schema.prisma`
+2. Adds an `.env` file to the root of the project
+
+I like to move the `prisma` directory into a `services` directory inside `src` to keep things tidy.
+
+After moving the `prisma` directory, my directory structure inside the NestJS app looks like this:
+
+```
+src
+  /services
+    /prisma
+      schema.prisma
+  main.ts
+```
+
+Because we've moved removed the Prisma directory and moved the `schema.prisma` file, we just need to add this to our `package.json` file so Prisma knows where to find it:
+
+```json:package.json
+{
+  ...
+
+  "prisma": {
+    "schema": "src/database/schema.prisma"
+  }
+
+  ...
+}
+```
+
+So, what is this `schema.prisma` file?
+
+The `schema.prisma` file is the main configuration file for Prisma. If you open up the file, you'll see the following:
+
+```json
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+The `datasource` provides the connection to your Postgres database by looking up a URL in the ENV file.
+
+This is important - using the env file allows us to have a different Postgres database for our various environments (local, staging, production, etc).
+
+Your local Postgres server already exists (as we set this up in the previous step with Docker Compose) - so we just need to grab these credentials and update our env file.
+
+Before changing anything, your `env` file should look something like this as Prisma auto-generated the `DATABASE_URL` for you:
+
+```env:.env
+POSTGRES_USER="username"
+POSTGRES_PASSWORD="password"
+
+# This was inserted by `prisma init`:
+# Environment variables declared in this file are automatically made available to Prisma.
+# See the documentation for more detail: https://pris.ly/d/prisma-schema#accessing-environment-variables-from-the-schema
+
+# Prisma supports the native connection string format for PostgreSQL, MySQL, SQLite, SQL Server, MongoDB and CockroachDB.
+# See the documentation for all the connection string options: https://pris.ly/d/connection-strings
+
+DATABASE_URL="postgresql://johndoe:randompassword@localhost:5432/mydb?schema=public"
+```
+
+We can remove the auto-generated comments from Prisma and update the `DATABASE_URL` to use our existing environment variables, like so:
+
+```env:.env
+POSTGRES_USER="username"
+POSTGRES_PASSWORD="password"
+
+DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@localhost:5432/mydb?schema=public"
+```
+
+In fact, I would take this one step further by abstracting out the other relevant variables:
+
+```env:.env
+POSTGRES_HOST="localhost"
+POSTGRES_PORT="5432"
+POSTGRES_NAME="mydb"
+POSTGRES_USER="username"
+POSTGRES_PASSWORD="password"
+
+DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_NAME}?schema=public"
+```
+
+Now your Prisma configuration is using your local Postgres server as the data source.
+
+In order for the NestJS app to get and mutate data from the database we need to use Prisma Client.
+
+```shell
+npm install @prisma/client
+```
+
+Prisma client is a type-safe database client directly tailored to the models you define in the `schema.prisma` file.
+
+As per the [NestJS docs](https://docs.nestjs.com/recipes/prisma#install-and-generate-prisma-client), it's best to abstract the Prisma Client into its own service.
+
+Let's create a new file inside the `database` directory we defined in a previous step called `prisma.service.ts`:
+
+```shell
+touch src/database/prisma.service.ts
+```
+
+And then inside the file, add the following code:
+
+```ts:prisma.service.ts
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class PrismaService extends PrismaClient implements OnModuleInit {
+  async onModuleInit() {
+    await this.$connect();
+  }
+}
+```
+
+To share the Prisma service, we need to create a module that exports the Prisma service.
+
+```shell
+touch src/database/prisma.module.ts
+```
+
+In this Prisma module, add the Prisma service as a provider and an export:
+
+```ts:prisma.module.ts
+import { Module } from '@nestjs/common';
+import { PrismaService } from './prisma.service';
+
+@Module({
+  providers: [PrismaService],
+  exports: [PrismaService],
+})
+export class PrismaModule {}
+
+```
+
+With an injectable Prisma service now available to use across our NestJS app, it can now be used by other modules in future projects!
+
+Finally, let's add a few scripts that will make using Prisma easier.
+
+```json:package.json
+{
+  ...
+
+  "scripts": {
+    // other scripts
+    "db:migrate:dev": "npx prisma migrate dev", // for running database migrations locally
+    "db:migrate:test": "npx prisma migrate reset --force --skip-seed", // used to clear database before each e2e test
+    "db:migrate:prod": "npx prisma migrate deploy", // used for deployment in CI pipeline
+    "db:studio": "npx prisma studio", // a GUI for viewing & mutating database records
+  }
+
+  ...
+}
+```
+
+You'll need to use the `db:migrate:dev` script after each change to the `schema.prisma` file.
+
+The other scripts will be explained in future steps below!
+
+## Setting up the cache
+
+In an earlier step, we set up a local Redis server using Docker Compose.
+
+Let's now update the code so we can use get and set data to the Redis cache instance.
+
+Let's start by installing the relevant packages:
+
+```shell
+pnpm add @nestjs/cache-manager cache-manager
 ```
