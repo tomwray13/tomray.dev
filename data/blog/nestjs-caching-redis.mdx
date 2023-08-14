@@ -2,7 +2,7 @@
 title: 'Ultimate Guide: NestJS Caching With Redis [2022]'
 h1: How to use cache in NestJS with Redis
 date: '2022-07-22'
-lastmod: '2022-07-22'
+lastmod: '2023-08-14'
 draft: false
 summary: A detailed tutorial with NestJS examples on how to implement in-memory and Redis caching using the NestJS Cache Manager and Cache Interceptor
 images: ['/static/images/nestjs-caching-redis/nestjs-caching-redis.png']
@@ -16,6 +16,8 @@ We'll start by using the NestJS cache manager which, by default, will store the 
 
 In this tutorial, we'll use the [Pokemon API](https://pokeapi.co/) to demonstrate how to leverage some different caching strategies. Check out the [Github repo](https://github.com/tomwray13/nestjs-caching) if you'd like to jump straight into the code!
 
+⚠️ Please note the following tutorial is based on NestJS v10.
+
 Ready? Let's go!
 
 <Magnet />
@@ -27,14 +29,14 @@ Ready? Let's go!
 Begin by installing the cache manager package:
 
 ```bash
-npm install cache-manager
-npm install -D @types/cache-manager
+npm install @nestjs/cache-manager cache-manager
 ```
 
 To enable caching, import the CacheModule into your `app.module.ts` file:
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { AppController } from './app.controller';
 
 @Module({
@@ -50,7 +52,8 @@ When interacting with any module in NestJS, you'll need to import it into the re
 Typically, caching is used across multiple modules so I prefer to leverage the `isGlobal` property in the `app.module.ts` file like this:
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { AppController } from './app.controller';
 
 @Module({
@@ -90,13 +93,8 @@ This controller calls a Pokemon service method called `getPokemon()` to return t
 Let's use the cache manager to first check if the response is in cache before calling the service method by using the `@UseInterceptors` decorator:
 
 ```ts:pokemon.controller.ts
-import {
-  CacheInterceptor,
-  Controller,
-  Get,
-  Param,
-  UseInterceptors,
-} from '@nestjs/common';
+import { Controller, Get, Param, UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import { PokemonService } from './pokemon.service';
 
 @Controller('pokemon')
@@ -115,14 +113,8 @@ export class PokemonController {
 The default expiration time of cache is 5 seconds. You can override this by using the `@CacheTTL` decorator:
 
 ```ts:pokemon.controller.ts
-import {
-  CacheInterceptor,
-  Controller,
-  Get,
-  Param,
-  UseInterceptors,
-  CacheTTL
-} from '@nestjs/common';
+import { Controller, Get, Param, UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import { PokemonService } from './pokemon.service';
 
 @Controller('pokemon')
@@ -142,15 +134,8 @@ export class PokemonController {
 The interceptor autogenerates the key for the cache entry based on the route path. You can also override this if you want to set a custom key:
 
 ```ts:pokemon.controller.ts
-import {
-  CacheInterceptor,
-  Controller,
-  Get,
-  Param,
-  UseInterceptors,
-  CacheTTL,
-  CacheKey
-} from '@nestjs/common';
+import { Controller, Get, Param, UseInterceptors } from '@nestjs/common';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import { PokemonService } from './pokemon.service';
 
 @Controller('pokemon')
@@ -199,7 +184,8 @@ Let's now use the cache manager (by injecting in the constructor) to cache the r
 
 ```ts:pokemon.service.ts
 import { HttpService } from '@nestjs/axios';
-import { CACHE_MANAGER, Inject, Injectable } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Inject, Injectable } from '@nestjs/common';
 import { Cache } from 'cache-manager';
 
 @Injectable()
@@ -289,16 +275,20 @@ This is where Redis comes in, the most popular persistent cache solution.
 
 To use Redis instead of the in-memory cache, we'll need to update the cache module configuration and also set up a local Redis server.
 
-First, install the relevant package:
+First, install the relevant packags:
 
 ```bash
-npm install cache-manager-redis-store
+npm install cache-manager-redis-store@2
+npm install --save-dev @types/cache-manager-redis-store
 ```
+
+By explicitly installing `cache-manager-redis-store@2` and the provided types in `@types/cache-manager-redis-store`, it ensures the redis store is compatible with the cache manager. You will face some type errors in your IDE otherwise!
 
 Then tweak the cache module to use Redis with the following configs:
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { PokemonModule } from './pokemon/pokemon.module';
 import * as redisStore from 'cache-manager-redis-store';
 
@@ -317,7 +307,7 @@ export class AppModule {}
 
 ```
 
-If you now try and spin up your local server with `npm run start:dev`, you'll get the following error:
+If, however, you now try and spin up your local server with `npm run start:dev`, you'll get the following error:
 
 ```bash
 Error: connect ECONNREFUSED 127.0.0.1:6379
@@ -385,7 +375,8 @@ npm i --save @nestjs/config
 Then in the `app.module.ts` file, import the config module, ensuring it's at the top of the list. If you place this below the other imports, they won't have access to `process.env`.
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { PokemonModule } from './pokemon/pokemon.module';
 import * as redisStore from 'cache-manager-redis-store';
 import { ConfigModule } from '@nestjs/config';
@@ -409,7 +400,8 @@ export class AppModule {}
 You could now add `REDIS_HOST` and `REDIS_PORT` to your .env file and update the Redis config values by using `process.env` like this:
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { PokemonModule } from './pokemon/pokemon.module';
 import * as redisStore from 'cache-manager-redis-store';
 import { ConfigModule } from '@nestjs/config';
@@ -455,7 +447,8 @@ The Redis instance requires authentication by default. You can easily access the
 We'll need to add the username and password as environment variables.
 
 ```ts:app.module.ts
-import { CacheModule, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
+import { CacheModule } from '@nestjs/cache-manager';
 import { PokemonModule } from './pokemon/pokemon.module';
 import * as redisStore from 'cache-manager-redis-store';
 import { ConfigModule } from '@nestjs/config';
