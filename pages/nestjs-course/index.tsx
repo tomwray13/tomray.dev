@@ -79,11 +79,21 @@ export default function NestJSCourse() {
             </li>
           </ul>
 
+          <h2 className="mb-2">💰 How much will the course cost?</h2>
+          <p>
+            Everything I've shared before on my blog has always been for free and for the NestJS
+            community. I can confirm, however, that this course will be a paid course. I'll be
+            announcing the course price closer to launch (I haven't figured out yet how much it
+            should be yet!).
+          </p>
+
           <h2 className="mb-2">🤓 Who is making this course?</h2>
           <p>
-            Hi! I'm <Link href="/about">Tom</Link>, a proud JS/TS dev from Brighton, UK. My blog on
-            NestJS is one of the biggest on the internet. Just last month over 20,000 developers
-            read my tutorials!
+            👋 Hi! I'm <Link href="/about">Tom</Link>, a proud JS/TS dev from Brighton, UK. Through
+            my blog, I've helped over 20,000 NestJS developers build cool projects and advance their
+            careers. I'm also the creator of{' '}
+            <Link href="/nestjs-fundamentals-course">NestJS Fundamentals</Link>, a free course
+            that's been taken by over 1000s of developers.
           </p>
 
           <h2 className="mb-2">🕰️ Join the waiting List</h2>
