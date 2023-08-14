@@ -34,6 +34,7 @@ Here's what's included in the starter repos:
 - Setting up NestJS logging
 - Docker compose set up for a Postgres database & Redis
 - Prisma setup (the ORM we'll be using in each project to interact with the database)
+- Redis and CacheService setup
 
 - Jest config (including env variables)
 - Setting up a CI Pipeline using Github Actions
@@ -975,8 +976,163 @@ In an earlier step, we set up a local Redis server using Docker Compose.
 
 Let's now update the code so we can use get and set data to the Redis cache instance.
 
-Let's start by installing the relevant packages:
+Let's start by installing the NestJS caching packages:
 
 ```shell
 pnpm add @nestjs/cache-manager cache-manager
 ```
+
+We're going to apply the cache set inside the `CommonModule`, so go there and add the `CacheModule`:
+
+```ts:common.module.ts
+import { Global, Module } from '@nestjs/common';
+import { Logger } from './logger/logger.service';
+import { ConfigModule } from '@nestjs/config';
+import config from '../config';
+
+@Global()
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [config] }),
+    CacheModule.register() // <- add this line
+  ],
+  providers: [Logger],
+  exports: [Logger],
+})
+export class CommonModule {}
+```
+
+This sets up the cache manager with the default configuration - you'll now have an in-memory cache!
+
+We want Redis, so let's next install the required packages:
+
+```shell
+npm install cache-manager-redis-store@2
+npm install --save-dev @types/cache-manager-redis-store
+```
+
+Next up, we need to add some environment variables for Redis.
+
+<!-- Let's update the config file with the following: -->
+
+<!-- ```typescript:config/configuration.ts
+export default () => ({
+  environment: process.env.NODE_ENV || `development`,
+  redis: {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
+  },
+}); -->
+
+````
+
+Make sure in your `.env` file you have the following:
+
+```env:.env
+REDIS_HOST="localhost"
+REDIS_PORT="6379"
+REDIS_USERNAME=""
+REDIS_PASSWORD=""
+````
+
+Note how the `REDIS_HOST` and `REDIS_PORT` are the same as what's defined in the `docker-compose.yml` file. Also note how the `REDIS_USERNAME` and `REDIS_PASSWORD` are empty strings - this is because we're using the default Redis configuration. When we get to deploying the projects we'll update these values in each hosting platform.
+
+Let's now update the `CacheModule` to use Redis:
+
+```ts:common.module.ts
+import { Global, Module } from '@nestjs/common';
+import { Logger } from './logger/logger.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import * as redisStore from 'cache-manager-redis-store';
+import config from '../config';
+
+@Global()
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [config] }),
+    CacheModule.register({
+      isGlobal: true,
+      store: redisStore,
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT,
+      username: process.env.REDIS_USERNAME,
+      password: process.env.REDIS_PASSWORD,
+      no_ready_check: true,
+    }),
+  ],
+  providers: [Logger],
+  exports: [Logger],
+})
+export class CommonModule {}
+```
+
+You can now inject the `CACHE_MANAGER` token into any service or controller to get access to the cache manager (as shown [here](https://www.tomray.dev/nestjs-caching-redis#injecting-the-cache-manager)).
+
+However, I prefer to encapsulate the caching logic in a `CacheService` and if you ever need to change the caching strategy or underlying cache implementation, you only have to do it in one place.
+
+Inside the `/common` directory, add a `/cache` directory and inside there add a file called `cache.service.ts`:
+
+```ts:cache.service.ts
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Injectable, Inject } from '@nestjs/common';
+import { Cache } from 'cache-manager';
+
+@Injectable()
+export class CacheService {
+  constructor(@Inject(CACHE_MANAGER) private readonly cache: Cache) {}
+
+  async get<T>(key: string): Promise<T | undefined> {
+    return await this.cache.get<T>(key);
+  }
+
+  async set(key: string, value: any, ttl?: number): Promise<void> {
+    await this.cache.set(key, value, ttl);
+  }
+
+  async del(key: string): Promise<void> {
+    await this.cache.del(key);
+  }
+
+  async reset(): Promise<void> {
+    await this.cache.reset();
+  }
+}
+
+
+```
+
+The 4 methods allow us to get, set, delete and reset the cache. The reset method will be used in a later step when we want to clear the cache before each e2e test!
+
+Finally, back in the `CommonModule`, add the `CacheService` to the providers and exports:
+
+```ts:common.module.ts
+import { Global, Module } from '@nestjs/common';
+import { Logger } from './logger/logger.service';
+import { CacheService } from './cache/cache.service';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import * as redisStore from 'cache-manager-redis-store';
+import config from '../config';
+
+@Global()
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true, load: [config] }),
+    CacheModule.register({
+      isGlobal: true,
+      store: redisStore,
+      host: process.env.REDIS_HOST,
+      port: process.env.REDIS_PORT,
+      username: process.env.REDIS_USERNAME,
+      password: process.env.REDIS_PASSWORD,
+      no_ready_check: true,
+    }),
+  ],
+  providers: [Logger, CacheService],
+  exports: [Logger, CacheService],
+})
+export class CommonModule {}
+```
+
+As mentioned above, as the `@Global()` decorator is used, the `CacheService` will be available to all modules.
