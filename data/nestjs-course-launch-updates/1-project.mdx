@@ -1,0 +1,1305 @@
+---
+title: 'Url Shortener - NestJS Starter'
+h1: Url Shortener - NestJS Starter
+date: '2023-07-23'
+lastmod: '2023-07-23'
+draft: false
+summary: Url Shortener - NestJS Starter
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: false
+---
+
+Please make sure you've installed the pre-requisites before starting!
+
+## Intro
+
+We're going to build a URL shortening API that's meant to be used as an internal tool for the company you work for.
+
+E.g. Imagine you work for a startup and you need a URL shortening tool, and you decide to build one instead of paying for an existing solution.
+
+Topics covered:
+
+- REST endpoints with CRUD functionality
+- Paginating and filtering a GET request that returns a list
+- Validation with DTOs and pipes
+- Persisting data to a database
+- Basic API key authentication using guards
+- Using the config module
+- Unit testing, integration testing and end-to-end testing
+
+Tutorial steps:
+
+- add CRUD endpoints
+- add the logic to shorten a link and return redirect
+- persist shortened url to a database so it can be fetched
+- add API key authentication to protect others accessing the tool
+- end to end testing and unit testing
+- deploy
+
+## Adding the CRUD endpoints
+
+So before adding any business logic, let's start with our entry points to the application - the REST endpoints.
+
+We want to add CRUD functionality (Create, Read, Update, Delete) for short urls. Specifically:
+
+- ability to create a shortened url
+- ability to view a list of my shortened urls
+- ability to update a shortened url
+- ability to delete a shortened url
+
+The NestJS CLI has a really useful command to generate the boilerplate for a module, a controller and it's respective service. It's a great way to get started quickly and also to learn the 'best practice' structure of a NestJS application.
+
+In the root of the project, run the following command
+
+```bash
+npx nest generate resource modules/url
+```
+
+You'll be prompted to select the type of resource you want to generate. Select `REST API`.
+
+You'll then be prompted to generate CRUD entry points. Select `Yes`.
+
+This will generate the following files:
+
+```
+/modules
+└── url
+    └── /dto
+        └── create-url.dto.ts
+        └── update-url.dto.ts
+    └── /entities
+        └── url.entity.ts
+    └── url.controller.spec.ts
+    └── url.controller.ts
+    └── url.module.ts
+    └── url.service.spec.ts
+    └── url.service.ts
+```
+
+Before explaining the files and structure, let's first delete a couple of the files as they don't be needed.
+
+- Delete the `/entities` directory and file iniside. This is because this is built for using TypeORM, which we won't be using (we'll be using Prisma instead)
+- Also delete the `url.controller.spec.ts` file. I don't typically write any tests against the controller for the following reasons:
+  -- In NestJS, it's best practice to keep your controller files 'clean' by moving all the business logic to the service layer. So the unit tests covered in the service file will be sufficient.
+  -- You can't actually test the validation of the controller methods in the controller tests, because the validation is done in the pipes, which are not executed in the controller tests. So we'll add unit tests for the pipes and we'll also do end-to-end testing
+
+So what's actually happening here?
+
+### The controller file: url.controller.ts
+
+This is the controller responsible for handling HTTP requests related to your shortened URLs. It defines the route handlers for creating, reading, updating, and deleting URLs. In NestJS, you'll use decorators like @Get(), @Post(), @Put(), and @Delete() to specify which HTTP methods should be used for each route, and you'll define the logic for handling these requests within this file.
+
+Here is the controller and respective methods that were generated for you:
+
+```ts
+// url.controller.ts
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+
+@Controller('url')
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  @Post()
+  create(@Body() createUrlDto: CreateUrlDto) {
+    return this.urlService.create(createUrlDto)
+  }
+
+  @Get()
+  findAll() {
+    return this.urlService.findAll()
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.urlService.findOne(+id)
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(+id, updateUrlDto)
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.urlService.remove(+id)
+  }
+}
+```
+
+Notice how the `@Controller('url')` decorator is used to define the base route for all the routes in the controller. In this case, all the routes will be prefixed with `/url`.
+
+### DTOs: create-url.dto.ts and update-url.dto.ts
+
+These DTO (Data Transfer Object) files define the shape of the data that the client can send when creating or updating a shortened URL. They are used in controllers. In create-url.dto.ts, you typically define the required fields for creating a URL, and in update-url.dto.ts, you specify the fields that can be updated. These DTOs help with validation and ensuring that the incoming data adheres to the expected structure (i.e. is fully typed)
+
+### The service file: url.service.ts
+
+The service is where you put the actual business logic related to your URLs. It handles the CRUD operations, interacts with the database and performs any necessary transformations on the data. The controller delegates most of its work to this service. Separating the service from the controller is a best practice in NestJS because it keeps your code organized and allows for easier testing and maintainability.
+
+### The module file: url.module.ts
+
+This is the module file that ties everything together. It imports and declares the controller, service, and any other necessary modules. In NestJS, modules are used to organize your application into functional units. They also enable dependency injection, allowing you to inject services into your controllers and other services easily. You may have noticed that running the command also automatically imported the UrlModule into the root AppModule.
+
+... spiel on modules and dependency injection
+
+## Adding the business logic
+
+Let's review what we're trying to build:
+
+We'd like to build a url shortening tool that can be used internally by a company. We want to be able to create a shortened url (which when used redirects to the original url), and then be able to view a list of all the shortened urls that we've created. We also want to be able to update and delete a shortened url. It would also be great if we can add a title and description to each shortened url too.
+
+Let's dive in:
+
+### Creating a shortened url
+
+So let's start with the create endpoint. We want to be able to send a POST request to `/url` with the following body:
+
+```json
+{
+  "originalUrl": "https://www.google.com",
+  "title": "Google",
+  "description": "The search engine"
+}
+```
+
+Defining the shape and types of the data that the client can send is done in the DTO file.
+
+You should see in the NestJS generated code that the create controller method and respective service method already use the `CreateUrlDto` class, so let's update this to use our desired shape of data.
+
+```ts:create-url.dto.ts
+import { IsNotEmpty, IsOptional, IsString, IsUrl } from 'class-validator';
+
+export class CreateUrlDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsOptional()
+  @IsNotEmpty()
+  description?: string;
+
+  @IsUrl()
+  redirect: string;
+}
+
+```
+
+We've added some validation to the fields. We want to make sure that the title and redirect are not empty strings, and that the redirect is a valid url. We've also made the description optional.
+
+The package we're using is called `class-validator` (we installed it in the NestJS starter repo), and you can see it uses decorators to define the validation rules for each field. For example, `@IsString()` ensures that the field is a string, and `@IsUrl()` ensures that the field is a valid url. Take a look [here](https://github.com/typestack/class-validator#validation-decorators) for the full list of validation rules you can use.
+
+NestJS will automatically handle the validation for you. If the incoming data doesn't match the validation rules, NestJS will automatically return a 400 Bad Request response to the client with the relevant error messages.
+
+For example, if you try and send a `POST /url` request to your local server with the payload completely empty, you'll get a `400` back with response:
+
+```json
+{
+  "message": [
+    "title should not be empty",
+    "title must be a string",
+    "redirect must be a URL address"
+  ],
+  "error": "Bad Request",
+  "statusCode": 400
+}
+```
+
+So this is really helpful and saves you having to write any validation logic yourself.
+
+Importantly, also notice that when NestJS generated the controller, it automatically imported the `CreateUrlDto` class from the DTO file and used it in the payload of the `create()` method.
+
+```ts
+// url.controller.ts
+import { Controller, Post, Body } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  @Post('url')
+  create(@Body() createUrlDto: CreateUrlDto) {
+    return this.urlService.create(createUrlDto)
+  }
+}
+```
+
+This is how a DTO is used in a controller method - using the `@Body()` decorator and specifying the DTO class against `createUrlDto`. This is really useful because it means that `createUrlDto` will be fully typed based on the types set in the DTO class and you'll get intellisense when writing the code.
+
+Also notice how in the controller, it just returns the respective service method?
+
+This is because the controller is meant to be 'thin' and not contain any business logic. It's just meant to handle the HTTP request and delegate the work to the service layer - that's typically seen as best practice in NestJS apps.
+
+So inside the service layer, let's now add the logic to create the shortened url. Here's the logic we want to implement:
+
+1. The short url we create needs to have a short uid (unique identifier). For example, if we create a shortened url for `https://www.google.com`, we want the short url to be something like `https://my-short-url.com/abc123`. So the first step is to generate a uid.
+2. We then want to save the shortened url to a database so that we can fetch it later. We'll use Prisma to do this.
+3. Finally, we want to return the shortened url to the client.
+
+Therefore, the response to the client will be in this shape:
+
+```json
+{
+  "data": {
+    "id": 1,
+    "title": "Google",
+    "description": "Search engine",
+    "redirect": "https://google.com",
+    "url": "localhost:3000/w22bnX8V8-",
+    "createdAt": "2023-08-25T08:59:29.406Z",
+    "updatedAt": "2023-08-25T08:59:29.406Z"
+  }
+}
+```
+
+One thing worth noting is the shortUrl is using `localhost:3000` - this is because we're working in a local environment and the redirect logic happens in our server. When we deploy the app, we'll use an actual domain name. This means the host of the shortUrl will change depending on the environment the server is running in. We'll use environment variables to handle this later on.
+
+So let's start with the first step - generating a uid. We'll use the `nanoid` package to do this. Install it with `npm install nanoid`.
+
+```ts
+pnpm add nanoid@3
+```
+
+We can then use this in the `create()` method to generate a UID and return it in the response:
+
+```ts
+// url.service.ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { nanoid } from 'nanoid'
+
+@Injectable()
+export class UrlService {
+  create(createUrlDto: CreateUrlDto) {
+    const uid = nanoid(10)
+    return {
+      ...createUrlDto,
+      url: `localhost:3000/${uid}`,
+    }
+  }
+}
+```
+
+This approach works, but has some downsides:
+
+- If you generate the UID within the service method, it's tightly coupled to the specific functionality of that method. If you later need to generate UIDs in a different part of your application (e.g., in another service or controller), you'll end up duplicating code.
+- If we want to change the uid package in the future, we will have to update multiple places in our code where the uid package is used
+- Imagine we want to test this method - by using the `nanoid` package directly in the method we can't reliably expect a specific response because the uid will be different each time. This point will be clearer below when we add unit tests.
+
+So how can we improve this?
+
+We can use the `dependency injection` feature of NestJS to inject the `nanoid` package into the `UrlService`. This means creating a new service to encapsulate the logic for generating the uid, and then injecting that service into the `UrlService`.
+
+I like to use a directory called `/services` for external dependencies like this. So add that directory and respective service and module inside:
+
+```bash
+mkdir -p src/services/uid
+touch src/services/uid/uid.service.ts
+touch src/services/uid/uid.module.ts
+```
+
+Inside the UID service, we'll add the logic to generate the uid using the `nanoid` package we installed earlier:
+
+```ts
+// uid.service.ts
+import { Injectable } from '@nestjs/common'
+import { nanoid } from 'nanoid'
+
+@Injectable()
+export class UidService {
+  generate() {
+    return nanoid(10)
+  }
+}
+```
+
+And then also add the following code to the module file:
+
+```ts
+// uid.module.ts
+import { Module } from '@nestjs/common'
+import { UidService } from './uid.service'
+
+@Module({
+  providers: [UidService],
+  exports: [UidService],
+})
+export class UidModule {}
+```
+
+Now to use the `UidService` generate method anywhere else in our NestJS code, we need to import the `UidModule` into the respective module. So now let's go back into the `UrlModule` and import the `UidModule`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { UrlController } from './url.controller'
+import { UidModule } from '../../services/uid/uid.module'
+
+@Module({
+  imports: [UidModule], // <-- add this
+  controllers: [UrlController],
+  providers: [UrlService],
+})
+export class UrlModule {}
+```
+
+The `UidService` is now available to use within the `UrlService` by using dependency injection.
+
+This example illustrates a common pattern in NestJS - if you want to use a service that comes from 'outside' of the module, then you need to import the respective module as shown above. Any services which are in the `exports` array will then be available to use in the module.
+
+So using dependency injection, we can now update the `UrlService` to use the `UidService` to generate the uid:
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { CreateUrlDto } from './dto/create-url.dto';
+import { UpdateUrlDto } from './dto/update-url.dto';
+import { UidService } from '../../services/uid/uid.service';
+
+@Injectable()
+export class UrlService {
+  constructor(private readonly uidService: UidService) {}
+
+  create(createUrlDto: CreateUrlDto) {
+    const uid = this.uidService.generate();
+    return {
+      ...createUrlDto,
+      url: `localhost:3000/${uid}`,
+    };
+  }
+
+```
+
+So now we've decoupled the logic for generating the uid from the `UrlService` and we can use the `UidService` anywhere else in our application.
+
+Give the request a test and you'll see a UID is generated and returned in the url field of the response.
+
+This is a good start, but the url returned in the response isn't saved anywhere so if someone tries to use the url, it won't work! So let's now add the logic to save the shortened url to a database.
+
+The NestJS starter repo has some foundations set up for you - navigate to the `/database` directory and you'll see a `prisma.schema` file. This is the schema for the database. It's written in Prisma's schema language, which is a declarative language for describing your application's data model. It's really easy to learn and you can read more about it [here](https://www.prisma.io/docs/concepts/components/prisma-schema).
+
+Inside the Prisma Schema file, let's define a table called `Url` with the following fields:
+
+```js
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Url {
+  id          Int      @default(autoincrement()) @id
+  title       String
+  description String?
+  redirect    String
+  url         String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+The `Url` table has the following fields:
+
+- `id` - an auto-incrementing integer that serves as the primary key
+- `title` - the title of the url
+- `description` - the description of the url. This is a nullable field (denoted by the `?`)
+- `redirect` - the original url that the shortened url redirects to
+- `url` - the shortened url
+- `createdAt` - the date and time the url was created
+- `updatedAt` - the date and time the url was last updated
+
+So we've defined the table and it's respective fields. To create the table in the database, we need to run the following command:
+
+```bash
+pnpm db:migrate:dev
+```
+
+This is a custom script defined in the NestJS starter repo for you to run migrations for your local development database. Make sure your local Postgres server is running before running this command! If you've been using `pnpm start:dev` earlier in the tutorial, then you should already have a local Postgres server running, if not then run `pnpm docker:start`.
+
+You'll be prompted to name the database migration - feel free to call this whatever you'd like!
+
+To validate that the table has been created, you can use the `pnpm db:studio` command to open up the Prisma Studio GUI. This is a really great tool to view and mutate records in your local database.
+
+So, how can we write some code to get and mutate data from the database?
+
+For this we need to use Prisma Client - a type-safe database client directly tailored to the models you define in the `schema.prisma` file. Install the package:
+
+```shell
+pnpm add @prisma/client
+```
+
+As per the [NestJS docs](https://docs.nestjs.com/recipes/prisma#install-and-generate-prisma-client), it's best to abstract the Prisma Client into its own service.
+
+Let's create a new file inside the `database` directory we defined in a previous step called `database.service.ts`:
+
+```shell
+touch src/database/database.service.ts
+```
+
+And then inside the file, add the following code:
+
+```ts:prisma.service.ts
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class DatabaseService extends PrismaClient implements OnModuleInit {
+  async onModuleInit() {
+    await this.$connect();
+  }
+}
+```
+
+To share the Prisma service, we need to create a module that exports the Prisma service.
+
+```shell
+touch src/database/database.module.ts
+```
+
+In this Prisma module, add the Prisma service as a provider and an export:
+
+```ts:prisma.module.ts
+import { Module } from '@nestjs/common';
+import { DatabaseService } from './database.service';
+
+@Module({
+  providers: [DatabaseService],
+  exports: [DatabaseService],
+})
+export class DatabaseModule {}
+
+```
+
+With an injectable `DatabaseService` now available to use across our NestJS app, let's start using it to create a new shortened url!
+
+Similarly to how we imported the `UidModule` into the `UrlModule`, we need to import the `DatabaseModule` into the `UrlModule`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { UrlController } from './url.controller'
+import { UidModule } from '../../services/uid/uid.module'
+import { DatabaseModule } from '../../database/database.module'
+
+@Module({
+  imports: [UidModule, DatabaseModule], // <-- import the DatabaseModule
+  controllers: [UrlController],
+  providers: [UrlService],
+})
+export class UrlModule {}
+```
+
+We can now use the `DatabaseService` in the `UrlService` by using dependency injection. Let's inject the `DatabaseService` and use it to create a new shortened url:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class UrlService {
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService
+  ) {}
+
+  async create(createUrlDto: CreateUrlDto) {
+    const uid = this.uidService.generate()
+    const url = await this.databaseService.url.create({
+      data: {
+        ...createUrlDto,
+        url: `localhost:3000/${uid}`,
+      },
+    })
+    return url
+  }
+}
+```
+
+Note how I've updated the `create()` method to be `async`? That's because database operations are asynchronous. So we need to use the `await` keyword to wait for the database operation to complete before returning the response to the client.
+
+The way the Prisma Client works (which is what the `DatabaseService` is using behind the scenes) is that it generates a set of methods for each model in the `schema.prisma` file. So in this case, we have a `Url` model, so the Prisma Client generates a `url` object with a `create()` method. This is what we're using to create a new shortened url. You can read more about the Prisma Client [here](https://www.prisma.io/docs/concepts/components/prisma-client/crud).
+
+The method returns back the response from the database, which is the newly created shortened url.
+
+So let's test this out! Send a `POST /url` request to your local server with the following payload:
+
+```json
+{
+  "originalUrl": "https://www.google.com",
+  "title": "Google",
+  "description": "The search engine"
+}
+```
+
+You may have noticed that the url has `localhost:3000` hard-coded in. This is not great because as soon as we deploy the server later on, the url will be incorrect. So how can we fix this?
+
+It would be better to dynamically update the url based on the environment the server is running in.
+
+This is a good use-case for using environment variables. NestJS has a method for using environment variables with the `ConfigModule` which was setup in the NestJS starter.
+
+In your `.env` file, add a new environment variable called `HOST` and set it to `localhost:3000`:
+
+```env
+HOST="localhost:3000"
+```
+
+And then inside of the `config` file, add a new value to access this host:
+
+```ts
+export default () => ({
+  host: process.env.HOST, // <-- add this
+  environment: process.env.NODE_ENV || `development`,
+  redis: {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
+  },
+})
+```
+
+The `host` environment variable is now accessible across the entire NestJS by using the `ConfigService`. We'll use this in the service layer to generate the short url.
+
+```ts
+// url.service.ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  async create(createUrlDto: CreateUrlDto) {
+    const uid = this.uidService.generate()
+    const url = await this.databaseService.url.create({
+      data: {
+        ...createUrlDto,
+        url: `${this.host}/${uid}`,
+      },
+    })
+    return url
+  }
+}
+```
+
+Using the `ConfigService` as shown in the above example is used differntly to the other two injections. Inside the constructor, we're setting the `host` variable using the `getOrThrow()` method to access the `host` environment variable. This is helpful for 2 reasons:
+
+1. The `host` variable is now accessible across the entire `UrlService` class and can be used across all the methods. This is because we've set it as a private variable in the class and set it in the constructor.
+2. If the `host` environment variable is not set, the `getOrThrow()` method will throw an error when the server starts (preventing the server from starting). This is essential because if the `host` environment variable is not set, then the short url will be incorrect and the server will not work as expected.
+
+So now if you send a `POST /url` request to your local server with the following payload:
+
+```json
+{
+  "originalUrl": "https://www.google.com",
+  "title": "Google",
+  "description": "The search engine"
+}
+```
+
+You should get a response back with the shortened url in the correct format:
+
+```json
+{
+  "id": 1,
+  "title": "Google",
+  "description": "The search engine",
+  "redirect": "https://www.google.com",
+  "url": "localhost:3000/abc123"
+}
+```
+
+Nice! So the url is now saved to the database and returns the respective response back to the client.
+
+### Fetching a shortened url & redirecting
+
+Let's now add the logic so that when someone uses the shortened url, it fetched the respective record in the database and redirects to the specified url.
+
+In the above logic, we created a shortened url with the following shape:
+
+```json
+{
+  "id": 1,
+  "title": "Google",
+  "description": "The search engine",
+  "redirect": "https://www.google.com",
+  "url": "localhost:3000/abc123"
+}
+```
+
+This means that they can take the value of the `url` field and when they use it, it should redirect to the `redirect` field.
+
+This means in our server, we need to add a route handler for `GET /:uid` that fetches the record from the database and redirects to the `redirect` field.
+
+If you review the current controller, you'll see that there's already a `GET /:id` route handler. However, inside the `Controller()` decoraye we specified the base route as `url`, which means the route is actually `GET /url/:id`:
+
+```ts
+// url.controller.ts
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+
+@Controller('url')
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  @Post()
+  create(@Body() createUrlDto: CreateUrlDto) {
+    return this.urlService.create(createUrlDto)
+  }
+
+  @Get()
+  findAll() {
+    return this.urlService.findAll()
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.urlService.findOne(+id)
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(+id, updateUrlDto)
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.urlService.remove(+id)
+  }
+}
+```
+
+We need to update this so that all the methods are prefixed with `/url` except for the `@Get(:id)` method. We can remove the `'url'` from the Controller decorator and instead define the base route for each method individually. To be consistent, I'm also going to replace `id` with `uid`:
+
+```ts
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  @Post('url')
+  create(@Body() createUrlDto: CreateUrlDto) {
+    return this.urlService.create(createUrlDto)
+  }
+
+  @Get('url')
+  findAll() {
+    return this.urlService.findAll()
+  }
+
+  @Get(':uid')
+  findOne(@Param('uid') uid: string) {
+    return this.urlService.findOne(+uid)
+  }
+
+  @Patch('url/:uid')
+  update(@Param('uid') uid: string, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(+uid, updateUrlDto)
+  }
+
+  @Delete('url/:uid')
+  remove(@Param('uid') uid: string) {
+    return this.urlService.remove(+uid)
+  }
+}
+```
+
+Okay nice! So we now have a route handler for `GET /:uid` that we can use to fetch the record from the database and redirect to the `redirect` field.
+
+You might have wondered about how we're going to handle the following scenario:
+
+What happens if someone uses a shortened url that doesn't exist in the database? For example, if someone uses `localhost:3000/abc123` but we haven't created a shortened url with that uid? And the same question for the `@Patch` and `@Delete` methods - what if someone tries to delete or update a shortened url that doesn't exist?
+
+In this scenario, the server should return a `404 Not Found` response to the client, for example:
+
+```json
+{
+  "statusCode": 404,
+  "message": "Url localhost:3000/abc123 does not exist",
+  "error": "Bad Request",
+  "statusCode": 404
+}
+```
+
+When it comes to validating requests in NestJS, there are two ways to do this:
+
+1. Using Pipes
+2. Using Guards
+
+[Guards](https://docs.nestjs.com/guards) are used to protect routes and endpoints. For example, you can use guards to restrict access to certain routes based on the user's role. We'll use guards later on in the tutorial when we add API key authentication to the server.
+
+[Pipes](https://docs.nestjs.com/pipes), are used to validate the data that's sent in the request and also transform the data if required. The DTO we setup earlier, for example, is actually a pipe (have a look in the `main.ts` file, it's enabled by using a Global Pipe). You can also use pipes to validate the data sent in the request params, query params, and headers.
+
+All 3 of the above scenarios mentioned above (GET, PATCH, DELETE) are using the request params `uid`, so we can use a custom pipe to validate the url exists in the database.
+
+Inside of the `url` directory, add a pipes directory and a new file called `url-exists.pipe.ts`:
+
+```bash
+mkdir -p src/url/pipes
+touch src/url/pipes/url-exists.pipe.ts
+```
+
+Inside the file, add the following code:
+
+```ts
+import { PipeTransform, Injectable, NotFoundException } from '@nestjs/common'
+import { UrlService } from '../url.service'
+
+@Injectable()
+export class UrlExistsPipe implements PipeTransform {
+  constructor(private readonly urlService: UrlService) {}
+  async transform(value: string) {
+    const url = await this.urlService.findOne(value)
+    if (!url) {
+      throw new NotFoundException(`URL ${value} does not exist`)
+    }
+    return url
+  }
+}
+```
+
+Let's explain what's happening here:
+
+3. We're defining a class called `UrlExistsPipe` that implements the `PipeTransform` interface. This is required when you want to create a pipe because it defines the `transform()` method that you need to implement.
+4. We're defining the `transform()` method which takes in a `value` parameter. This is the value of the request param (the `uid`) that we're validating.
+5. We're using the `findOne()` method from the `UrlService` to fetch the record from the database. If the record doesn't exist, we throw a `NotFoundException` which will return a `404` response to the client.
+
+It's also worth noting that the pipe takes in the uid and returns back the full url record. So this pipe does the validation check if it passes, transforms the uid into the full url record, and then passes the full url record to the controller method.
+
+NestJS have quite a few helpful HTTP error exceptions that you can use like `NotFoundException` that automatically handle the error code. You can read more about them [here](https://docs.nestjs.com/exception-filters#built-in-http-exceptions).
+
+The `findOne()` method in the `UrlService` does not currently fetch and return the respective url, so let's add that now:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+
+  async findOne(uid: string) {
+    return await this.databaseService.url.findUnique({
+      where: {
+        url: `${this.host}/${uid}`,
+      },
+    })
+  }
+
+  // ...
+}
+```
+
+We can now update the GET, PATCH and DELETE requests in the controller to use the `UrlExistsPipe`:
+
+```ts
+// url.controller.ts
+import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  // ...
+
+  @Get(':uid')
+  findOne(@Param('uid', UrlExistsPipe) url: Url) {
+    // redirect to url
+  }
+
+  @Patch('url/:uid')
+  update(@Param('uid', UrlExistsPipe) url: Url, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(url.id, updateUrlDto)
+  }
+
+  @Delete('url/:uid')
+  remove(@Param('uid', UrlExistsPipe) url: Url) {
+    return this.urlService.remove(url.id)
+  }
+}
+```
+
+Let's discuss how using a pipe against the url parameter works (it works the same for all 3 methods):
+
+1. We're using the `@Param()` decorator to access the `uid` parameter from the request.
+2. We're passing in the `UrlExistsPipe` as the second argument to the `@Param()` decorator. This means that the `UrlExistsPipe` will be executed against the `uid` parameter (if you look in the pipe file, this is the value passed into the `transform()` method)
+3. The `UrlExistsPipe` will then execute the `transform()` method and return the full url record if it exists in the database.
+4. The `url` parameter in the controller method will then be the full url record, which is why I've assigned the `Url` type which is provided by Prisma Client.
+
+In the GET request, let's finally add the logic to redirect to the `redirect` field of the url record:
+
+```ts
+// url.controller.ts
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+import { Response } from 'express'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  // ...
+
+  @Get(':uid')
+  findOne(@Param('uid', UrlExistsPipe) url: Url, @Res() res: Response) {
+    res.redirect(url.redirect)
+  }
+
+  // ...
+}
+```
+
+The `@Res` decorator is used to access the response object. NestJS gives you access to the underlying Express response object, so you can use the `redirect()` method to redirect to the `redirect` field of the url record. You also have access to the Request object, query parameters and more. Take a full look [here](https://docs.nestjs.com/controllers#request-object).
+
+We can then use the `redirect()` method to redirect to the `redirect` field of the url record.
+
+If it's not already up and running, spin up your local server and send a `POST /url` request to create a new shortened url. Then send a `GET /:uid` request to the shortened url and you should be redirected to the original url!
+
+### Handling updating and deleting a shortened url
+
+So in the previous section, we already updated the PATCH and DELETE requests to use the `UrlExistsPipe` to validate the url exists in the database:
+
+```ts
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+import { Response } from 'express'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  // ...
+
+  @Patch('url/:uid')
+  update(@Param('uid', UrlExistsPipe) url: Url, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(url.id, updateUrlDto)
+  }
+
+  @Delete('url/:uid')
+  remove(@Param('uid', UrlExistsPipe) url: Url) {
+    return this.urlService.remove(url.id)
+  }
+}
+```
+
+So now we just need to update the respective `UrlService` methods to update and delete the url record!
+
+```ts
+// url.service.ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+
+  async update(id: number, updateUrlDto: UpdateUrlDto) {
+    return await this.databaseService.url.update({
+      where: {
+        id,
+      },
+      data: updateUrlDto,
+    })
+  }
+
+  async remove(id: number) {
+    return await this.databaseService.url.delete({
+      where: {
+        id,
+      },
+    })
+  }
+}
+```
+
+Nice, give it a test and you should be able to update and delete a shortened url!
+
+### Returning a list of shortened urls
+
+Let's now focus on returning back the list of saved urls. This is useful if you want to view all the urls you've saved.
+
+The controller already has a `GET /url` route handler and points to the respective service method, so let's update the `findAll()` method in the `UrlService` to return back all the urls:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+
+  async findAll() {
+    return await this.databaseService.url.findMany()
+  }
+
+  // ...
+}
+```
+
+Give it a test and you should get back a list of all the urls you've saved!
+
+This works well but can quickly become a problem if you have a lot of urls saved. Imagine if you had 1000 urls saved - you wouldn't want to return back all 1000 urls in one response! Also what if you wanted to search for a specific url?
+
+Here's what we're going to do:
+
+1. Update our GET request to accept a `page` and `limit` query parameter. The `page` parameter will be the page number, and the `limit` parameter will be the number of urls to return per page. We'll also allow for a `filter` parameter to search for a specific url.
+2. Use the `page` and `limit` query parameters to paginate the results. This means that we'll only return back a certain number of urls per page.
+3. Use the `filter` query parameter to search for a specific url.
+
+Similar to how we used DTOs for validating the request body, we can use DTOs to validate the query parameters.
+
+Let's start by adding 2 new DTO files called `pagination.dto.ts` and `get-urls.dto.ts`:
+
+```bash
+touch src/url/dto/pagination.dto.ts
+touch src/url/dto/get-urls.dto.ts
+```
+
+In the Pagination DTO, add:
+
+```ts
+import { IsInt, IsOptional } from 'class-validator'
+
+export class PaginationDto {
+  @IsInt()
+  @IsOptional()
+  page?: number
+
+  @IsInt()
+  @IsOptional()
+  limit?: number
+}
+```
+
+And in the Get URLs DTO, add:
+
+```ts
+import { IsOptional, IsString } from 'class-validator'
+import { PaginationDto } from './pagination.dto'
+
+export class GetUrlsDto extends PaginationDto {
+  @IsOptional()
+  filter?: string
+}
+```
+
+The `PaginationDto` is used to validate the `page` and `limit` query parameters. The `FilterUrlDto` extends the `PaginationDto` and adds a `filter` query parameter to search for a specific url.
+
+So let's now update the controller method to use the `FilterUrlDto`:
+
+```ts
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+import { Response } from 'express'
+import { GetUrlsDto } from './dto/get-urls.dto'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  // ...
+
+  @Get('url')
+  findAll(@Query() queryParams: GetUrlsDto) {
+    console.log(`Query Params`, queryParams) // <-- add this to check the filter values are working
+    return []
+  }
+
+  // ...
+}
+```
+
+Here we've used the `@Query` decorator to access the query parameters from the request. They're then passed through the `GetUrlsDto` which validates the query parameters. To check they're working as expected, send a `GET /url` request with some query params to see if the request behaves as you'd expect. For example:
+
+```bash
+GET /url?page=1&limit=10&filter=google
+```
+
+The above request actually returns the following error:
+
+```json
+{
+  "message": ["page must be an integer number", "limit must be an integer number"],
+  "error": "Bad Request",
+  "statusCode": 400
+}
+```
+
+This is strange because integers (i.e. whole numbers) were passed in to the `page` and `limit` query parameters.
+
+The reason this is happening is because the `@Query` decorator automatically parses the query parameters into strings. So we need to update the Pagination DTO to transform the strings into integers. We also should make sure that the `page` and `limit` query cannot be less than 1 by using the `@Min()` decorator:
+
+```ts
+import { IsOptional, IsInt, Min } from 'class-validator'
+import { Transform } from 'class-transformer'
+
+export class PaginationDto {
+  @IsInt()
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @Min(1)
+  page?: number
+
+  @IsInt()
+  @IsOptional()
+  @Transform(({ value }) => parseInt(value, 10))
+  @Min(1)
+  limit?: number
+}
+```
+
+If you try the GET request again, that will now be working and logging the respective query parameters to the console!
+
+Let's now update the controller method to pass in the query parameters to the `findAll()` method in the `UrlService`:
+
+```ts
+import { Controller, Get, Post, Body, Patch, Param, Delete, Res } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+import { Response } from 'express'
+import { GetUrlsDto } from './dto/get-urls.dto'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  // ...
+
+  @Get('url')
+  findAll(@Query() queryParams: GetUrlsDto) {
+    return this.urlService.findAll(queryParams)
+  }
+
+  // ...
+}
+```
+
+Let's first update the service method to handle the pagination, then after we can handle the filter.
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+
+  async findAll({ page = 1, limit = 10 }: GetUrlsDto) {
+    const skip = (page - 1) * limit
+    const data = await this.databaseService.url.findMany({
+      skip,
+      take: limit,
+    })
+    const totalCount = await this.databaseService.url.count({})
+
+    const meta = {
+      totalCount,
+      currentPage: page,
+      perPage: limit,
+      totalPages: Math.ceil(totalCount / limit),
+      hasNextPage: skip + limit < totalCount,
+      hasPreviousPage: skip > 0 && page > 1,
+    }
+
+    return { data, meta }
+  }
+
+  // ...
+}
+```
+
+Here's how this method works:
+
+1. We're destructuring the `page` and `limit` query parameters from the `GetUrlsDto` and setting default values if they're not provided.
+2. We're using [offset pagination](https://www.prisma.io/docs/concepts/components/prisma-client/pagination) via `skip` and `take` options from Prisma Client to paginate the results. The `skip` option skips the first `n` records, and the `take` option takes the next `n` records. So if we have 100 records and we want to return back 10 records per page, we can use the `skip` option to skip the first 10 records, and then use the `take` option to take the next 10 records.
+3. We're using the `count()` method from Prisma Client to get the total number of records in the database.
+4. We're then returning back the `data` and `meta` object. The `data` object is the list of urls, and the `meta` object contains the pagination information.
+
+It's worth noting that while skip and take are common in many backend systems and databases, they might not be as intuitive for API consumers. That's why we've instead used more intuitive query parameters in `page` and `limit` and taken care of the pagination logic in the service layer.
+
+Let's now extend this functionality to pass in the `filter` query param that should return back any saved url where the passed in filter is any of the title, description, url or redirect fields:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+
+  async findAll({ page = 1, limit = 10, filter }: GetUrlsDto) {
+    const skip = (page - 1) * limit
+    const whereClause = filter
+      ? {
+          OR: [
+            { title: { contains: filter } },
+            { description: { contains: filter } },
+            { redirect: { contains: filter } },
+            { url: { contains: filter } },
+          ],
+        }
+      : {}
+    const data = await this.databaseService.url.findMany({
+      where: whereClause,
+      skip,
+      take: limit,
+    })
+    const totalCount = await this.databaseService.url.count({
+      where: whereClause,
+    })
+
+    const meta = {
+      totalCount,
+      currentPage: page,
+      perPage: limit,
+      totalPages: Math.ceil(totalCount / limit),
+      hasNextPage: skip + limit < totalCount,
+      hasPreviousPage: skip > 0 && page > 1,
+    }
+
+    return { data, meta }
+  }
+
+  // ...
+}
+```
+
+Here we've defined a `whereClause` that uses the `OR` operator to check if the `filter` query parameter is contained in any of the title, description, redirect or url fields. If the `filter` query parameter is not provided, then we return back an empty object. This `whereClause` has been added to both the `findMany()` and `count()` Prisma methods.
+
+Give it a test and you should be able to paginate and filter the list of urls!
+
+Our API now has full CRUD functionality, great work!
+
+## Unit tests
+
+## API key authentication
+
+## E2E testing
+
+## Deployment
+
+<!-- TODO: use Prisma generated types in DTOs and controllers -->
+
+```
+
+```
+
+```
+
+```
+
+```
+
+```
