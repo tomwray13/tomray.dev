@@ -113,6 +113,23 @@ Okay, with that set up let's install NestJS Config
 pnpm add @nestjs/config
 ```
 
+You might see an error like this after installing the package:
+
+```
+ WARN  Issues with peer dependencies found
+.
+└─┬ ts-loader 9.4.4
+  └── ✕ missing peer webpack@^5.0.0
+Peer dependencies that should be installed:
+  webpack@^5.0.0
+```
+
+This is because NestJS Config has a peer dependency on Webpack 5. We're not using Webpack in this project, so we can safely ignore this warning.
+
+```shell
+pnpm add webpack@^5.0.0
+```
+
 With the package installed, we can now use the config module.
 
 We're going to add a `/common` directory and respective module which will be a place where we can add services that can be used across the entire application.
@@ -255,6 +272,31 @@ Why bother with doing this?
 - **Ease of Extension**: If you decide later that you want to include additional metadata in every response (such as headers for rate limiting or custom diagnostic information), you can do so in the interceptor without having to modify every individual controller.
 - **Separation of Concerns**: By handling the response transformation in an interceptor, you keep this logic separate from your actual business logic in the controllers. This can make the code easier to understand, test, and maintain.
 
+One final tweak to this interceptor is to consider pagination. If you have an endpoint that returns a list of items, you might want to include pagination information in the response. For example, you might want to include the total number of items, the current page, and the number of items per page.
+
+Instead of nesting this inside the `data` property, it's better to include it as a sibling property. This is because the `data` property is intended to contain the actual data being returned by the endpoint, and including pagination information inside it would break that convention.
+
+Here's how we can update the interceptor to handle this:
+
+```ts:transform-response.interceptor.ts
+@Injectable()
+export class TransformResponseInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    return next.handle().pipe(
+      map((response) => {
+        if (response.data && response.meta) {
+          return {
+            data: response.data,
+            meta: response.meta,
+          };
+        }
+        return { data: response };
+      }),
+    );
+  }
+}
+```
+
 To implement this interceptor, inside your `common.module.ts` file, add the following:
 
 ```typescript:app.module.ts
@@ -284,6 +326,37 @@ export class CommonModule {}
 ```
 
 Test an API request and the response should now be wrapped in an object with a `data` property.
+
+It's also worth updating the built in e2e test that Nest created for you to reflect the new data property:
+
+```typescript:app.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../src/app.module';
+
+describe('AppController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect({ data: 'Hello World!' }); // Updated to reflect new data property
+  });
+});
+```
+
+We'll get into more detail on e2e testing in a section below!
 
 ## 🔒 Add HTTP header security
 
@@ -438,7 +511,6 @@ pnpm add winston
 Inside the `/common` directory, create a new directory called `logger` and add a file called `logger.service.ts`
 
 ```ts:logger.service.ts
-// logger.service.ts
 import { Injectable, LoggerService } from '@nestjs/common';
 import * as winston from 'winston';
 
@@ -494,10 +566,39 @@ export class Logger implements LoggerService {
       context,
       meta,
     });
+  }
 }
+
 ```
 
 You'll notice I've included a `meta` argument in each log which allows you to pass in any extra data to each log if you want to give additional context.
+
+Make sure you import the logger service into the `common.module.ts` file and add it to the `providers` array:
+
+```ts:common.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from '../config';
+import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Logger } from './logger/logger.service';
+import { Global } from '@nestjs/common/decorators';
+
+@Global() // <-- Add this decorator
+@Module({
+  imports: [ConfigModule.forRoot({ isGlobal: true, load: [config] })],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    Logger,  // <-- Add as provider
+  ],
+  exports: [Logger], // <-- Add as export
+})
+export class CommonModule {}
+
+
+```
+
+You'll notice I've also added the `Global()` decorator - this is because we want to make all services (right now just the Logger service) inside this module available to the entire application.
 
 You'll also notice in the `error` log method I've included a way to include the stack trace. This could be used like the following:
 
@@ -548,26 +649,6 @@ This should print to your console:
 }
 
 ```
-
-Make sure you import the logger service into the `common.module.ts` file and add it to the `providers` array:
-
-```ts:common.module.ts
-import { Global, Module } from '@nestjs/common';
-import { Logger } from './logger/logger.service';
-import { ConfigModule } from '@nestjs/config';
-import config from '../config';
-
-@Global() // <-- Add this decorator
-@Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true, load: [config] })],
-  providers: [Logger], // <-- Add as provider
-  exports: [Logger], // <-- Add as export
-})
-export class CommonModule {}
-
-```
-
-You'll notice I've also added the `Global()` decorator - this is because we want to make all services (right now just the Logger service) inside this module available to the entire application.
 
 The JSON formatting of logs is super practicle in production as it allows you to easily aggregate logs in a centralised logging solution so you can query the logs easily and create dashboards from the logs.
 
@@ -622,13 +703,12 @@ It would also be useful to log each HTTP request that hits our NestJS server. We
 Inside the `/logger` directory, create a new file called `logger.middleware.ts`:
 
 ```ts:logger.middleware.ts
-// request-logger.middleware.ts
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { Logger } from './logger.service';
 
 @Injectable()
-export class RequestLoggerMiddleware implements NestMiddleware {
+export class LoggerMiddleware implements NestMiddleware {
   constructor(private readonly logger: Logger) {}
 
   use(req: Request, res: Response, next: NextFunction) {
@@ -667,19 +747,30 @@ This code is basically just logging the request and response data for each HTTP 
 
 Now we need to register this middleware in our application, otherwise it won't work.
 
-For global middleware (i.e applied across all routes), it's typically best practice to apply it in the `app.module.ts` file so it's clear it applies to all routes.
+As we're using the `CommonModule` as a place to define globally applied config and services, let's add the logging middleware there:
 
-Open the `app.module.ts` file and apply the middleware as shown here:
+```ts:common.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import config from '../config';
+import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Logger } from './logger/logger.service';
+import { Global } from '@nestjs/common/decorators';
+import { MiddlewareConsumer } from '@nestjs/common/interfaces';
+import { LoggerMiddleware } from './logger/logger.middleware';
+import { RequestMethod } from '@nestjs/common/enums';
 
-```ts:app.module.ts
-import { MiddlewareConsumer, Module, RequestMethod } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { LoggerMiddleware } from './common/logger/logger.middleware';
-
+@Global()
 @Module({
-  // ...
+  imports: [ConfigModule.forRoot({ isGlobal: true, load: [config] })],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    Logger,
+  ],
+  exports: [Logger],
 })
-export class AppModule {
+export class CommonModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(LoggerMiddleware)
@@ -687,9 +778,61 @@ export class AppModule {
   }
 }
 
+
 ```
 
 Now fire off a HTTP request into your NestJS app and see the logs in your console! Feel free to edit the message in the log to whatever you want in the LoggerMiddleware.
+
+One thing to keep in mind is when we run e2e tests (covered later on), we won't want these HTTP logs to show in all the tests as it will make the test output messy. Let's add a really small tweak to the `LoggerMiddleware` to only log HTTP requests when the `environment` value from the config file is NOT set to `test`:
+
+```ts:logger.middleware.ts
+import { Injectable, NestMiddleware } from '@nestjs/common';
+import { Request, Response, NextFunction } from 'express';
+import { Logger } from './logger.service';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  constructor(
+    private readonly logger: Logger,
+    private readonly configService: ConfigService,
+  ) {}
+
+  use(req: Request, res: Response, next: NextFunction) {
+    const environment = this.configService.get(`environment`);
+    if (environment !== `test`) { // <-- Only log HTTP requests when not in test mode
+      const start = Date.now();
+      const { method, url, headers, query, body } = req;
+
+      res.on('finish', () => {
+        const responseTime = Date.now() - start;
+        const message = `${method} ${url} ${res.statusCode} ${responseTime}ms`;
+        const statusCode = res.statusCode;
+        const logData = {
+          responseTime,
+          method,
+          url,
+          headers,
+          query,
+          body,
+        };
+
+        if (statusCode >= 500) {
+          this.logger.error(message, undefined, `HTTP`, logData);
+        } else if (statusCode >= 400) {
+          this.logger.warn(message, `HTTP`, logData);
+        } else {
+          this.logger.warn(message, `HTTP`, logData);
+        }
+      });
+    }
+    next();
+  }
+}
+
+```
+
+Nice! Now we have a custom logger service that we can use throughout our NestJS app. We also have a middleware that logs each HTTP request that hits our server (except for when we're running tests).
 
 You may have notice some of the automated NestJS logs:
 
@@ -741,7 +884,7 @@ services:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -749,12 +892,29 @@ services:
     image: redis:alpine
     container_name: nestjs_redis # Needs updating
     ports:
-      - "6379:6379"
+      - '6379:6379'
     volumes:
       - redis_data:/data
+
+networks:
+  default:
+    name: nestjs_starter  # Needs updating
+
+volumes:
+  postgres_data:
+  redis_data:
+
 ```
 
 I've left a few comments in there as reminders to update those names to something more specific to your project. We'll do this in each project we set up.
+
+In your `.env` file, add the following POSTGRES variables:
+
+```env
+NODE_ENV="development"
+POSTGRES_USER="username"
+POSTGRES_PASSWORD="password"
+```
 
 To spin up the Postgres & Redis containers, run the following command:
 
@@ -784,7 +944,7 @@ And then update the existing `start:dev` script to run both commands:
 ```json
 "scripts": {
   // other scripts
-  "start:dev": "pnpm docker:start && pnpm start:dev",
+  "start:dev": "pnpm docker:start && nest start --watch",
 },
 ```
 
@@ -807,15 +967,14 @@ This does two things:
 1. Creates a directory called `prisma` with a file inside called `schema.prisma`
 2. Adds an `.env` file to the root of the project
 
-I like to move the `prisma` directory into a `services` directory inside `src` to keep things tidy.
+I like to rename the `prisma` directory to `database` and move it inside `src` to keep things tidy.
 
-After moving the `prisma` directory, my directory structure inside the NestJS app looks like this:
+The directory structure inside the NestJS app looks like this:
 
 ```
 src
-  /services
-    /prisma
-      schema.prisma
+  /database
+    schema.prisma
   main.ts
 ```
 
@@ -886,7 +1045,7 @@ In fact, I would take this one step further by abstracting out the other relevan
 
 ```env:.env
 POSTGRES_HOST="localhost"
-POSTGRES_PORT="5432"
+POSTGRES_PORT="5432" # Needs to match the port in docker-compose.yml
 POSTGRES_NAME="mydb"
 POSTGRES_USER="username"
 POSTGRES_PASSWORD="password"
@@ -899,17 +1058,17 @@ Now your Prisma configuration is using your local Postgres server as the data so
 In order for the NestJS app to get and mutate data from the database we need to use Prisma Client.
 
 ```shell
-npm install @prisma/client
+pnpm add @prisma/client
 ```
 
 Prisma client is a type-safe database client directly tailored to the models you define in the `schema.prisma` file.
 
 As per the [NestJS docs](https://docs.nestjs.com/recipes/prisma#install-and-generate-prisma-client), it's best to abstract the Prisma Client into its own service.
 
-Let's create a new file inside the `database` directory we defined in a previous step called `prisma.service.ts`:
+Let's create a new file inside the `database` directory we defined in a previous step called `database.service.ts`:
 
 ```shell
-touch src/database/prisma.service.ts
+touch src/database/database.service.ts
 ```
 
 And then inside the file, add the following code:
@@ -919,7 +1078,7 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit {
+export class DatabaseService extends PrismaClient implements OnModuleInit {
   async onModuleInit() {
     await this.$connect();
   }
@@ -929,20 +1088,21 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 To share the Prisma service, we need to create a module that exports the Prisma service.
 
 ```shell
-touch src/database/prisma.module.ts
+touch src/database/database.module.ts
 ```
 
 In this Prisma module, add the Prisma service as a provider and an export:
 
-```ts:prisma.module.ts
+```ts:database.module.ts
 import { Module } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
+import { DatabaseService } from './database.service';
 
 @Module({
-  providers: [PrismaService],
-  exports: [PrismaService],
+  providers: [DatabaseService],
+  exports: [DatabaseService],
 })
-export class PrismaModule {}
+export class DatabaseModule {}
+
 
 ```
 
@@ -957,7 +1117,6 @@ Finally, let's add a few scripts that will make using Prisma easier.
   "scripts": {
     // other scripts
     "db:migrate:dev": "npx prisma migrate dev", // for running database migrations locally
-    "db:migrate:test": "npx prisma migrate reset --force --skip-seed", // used to clear database before each e2e test
     "db:migrate:prod": "npx prisma migrate deploy", // used for deployment in CI pipeline
     "db:studio": "npx prisma studio", // a GUI for viewing & mutating database records
   }
@@ -969,6 +1128,8 @@ Finally, let's add a few scripts that will make using Prisma easier.
 You'll need to use the `db:migrate:dev` script after each change to the `schema.prisma` file.
 
 The other scripts will be explained in future steps below!
+
+We've not added any database tables as this is very specific for each project - those will get added in the projects ahead.
 
 ## Setting up the cache
 
@@ -985,10 +1146,17 @@ pnpm add @nestjs/cache-manager cache-manager
 We're going to apply the cache set inside the `CommonModule`, so go there and add the `CacheModule`:
 
 ```ts:common.module.ts
-import { Global, Module } from '@nestjs/common';
-import { Logger } from './logger/logger.service';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import config from '../config';
+import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Logger } from './logger/logger.service';
+import { Global } from '@nestjs/common/decorators';
+import { MiddlewareConsumer } from '@nestjs/common/interfaces';
+import { LoggerMiddleware } from './logger/logger.middleware';
+import { RequestMethod } from '@nestjs/common/enums';
+import { CacheModule } from '@nestjs/cache-manager';
 
 @Global()
 @Module({
@@ -996,10 +1164,20 @@ import config from '../config';
     ConfigModule.forRoot({ isGlobal: true, load: [config] }),
     CacheModule.register() // <- add this line
   ],
-  providers: [Logger],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    Logger,
+  ],
   exports: [Logger],
 })
-export class CommonModule {}
+export class CommonModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}
+
 ```
 
 This sets up the cache manager with the default configuration - you'll now have an in-memory cache!
@@ -1007,15 +1185,15 @@ This sets up the cache manager with the default configuration - you'll now have 
 We want Redis, so let's next install the required packages:
 
 ```shell
-npm install cache-manager-redis-store@2
-npm install --save-dev @types/cache-manager-redis-store
+pnpm add cache-manager-redis-store@2
+pnpm add --D @types/cache-manager-redis-store
 ```
 
 Next up, we need to add some environment variables for Redis.
 
-<!-- Let's update the config file with the following: -->
+Let's update the config file with the following:
 
-<!-- ```typescript:config/configuration.ts
+```typescript:config/configuration.ts
 export default () => ({
   environment: process.env.NODE_ENV || `development`,
   redis: {
@@ -1024,49 +1202,107 @@ export default () => ({
     username: process.env.REDIS_USERNAME,
     password: process.env.REDIS_PASSWORD,
   },
-}); -->
-
-````
+});
+```
 
 Make sure in your `.env` file you have the following:
 
 ```env:.env
 REDIS_HOST="localhost"
-REDIS_PORT="6379"
+REDIS_PORT="6379" # Needs to match the port in docker-compose.yml
 REDIS_USERNAME=""
 REDIS_PASSWORD=""
-````
+```
 
 Note how the `REDIS_HOST` and `REDIS_PORT` are the same as what's defined in the `docker-compose.yml` file. Also note how the `REDIS_USERNAME` and `REDIS_PASSWORD` are empty strings - this is because we're using the default Redis configuration. When we get to deploying the projects we'll update these values in each hosting platform.
 
 Let's now update the `CacheModule` to use Redis:
 
 ```ts:common.module.ts
-import { Global, Module } from '@nestjs/common';
-import { Logger } from './logger/logger.service';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import * as redisStore from 'cache-manager-redis-store';
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
 import config from '../config';
+import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Logger } from './logger/logger.service';
+import { Global } from '@nestjs/common/decorators';
+import { MiddlewareConsumer } from '@nestjs/common/interfaces';
+import { LoggerMiddleware } from './logger/logger.middleware';
+import { RequestMethod } from '@nestjs/common/enums';
+import { CacheModule } from '@nestjs/cache-manager';
+import * as redisStore from 'cache-manager-redis-store';
 
 @Global()
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [config] }),
-    CacheModule.register({
-      isGlobal: true,
-      store: redisStore,
-      host: process.env.REDIS_HOST,
-      port: process.env.REDIS_PORT,
-      username: process.env.REDIS_USERNAME,
-      password: process.env.REDIS_PASSWORD,
-      no_ready_check: true,
+    CacheModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => ({
+        isGlobal: true,
+        store: redisStore,
+        host: configService.get('redis.host'),
+        port: configService.get('redis.port'),
+        username: configService.get('redis.username'),
+        password: configService.get('redis.password'),
+        no_ready_check: true,
+        ttl: 10,
+      }),
+      inject: [ConfigService],
     }),
   ],
-  providers: [Logger],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    Logger,
+  ],
   exports: [Logger],
 })
-export class CommonModule {}
+export class CommonModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}
 ```
+
+If you now spin up your local server with `pnpm start:dev`, this will connect to the Redis instance and you'll be able to use the cache! You may notice, however, the following console warning:
+
+```
+node_redis: Warning: Redis server does not require a password, but a password was supplied
+```
+
+This is totally optional but I like to remove this warning by adding the following to the `useFactory` function:
+
+```ts:common.module.ts
+@Module({
+  imports: [
+    // ...
+    CacheModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const username = configService.get('redis.username');
+        const password = configService.get('redis.password');
+        return {
+          isGlobal: true,
+          store: redisStore,
+          host: configService.get('redis.host'),
+          port: configService.get('redis.port'),
+          ...(username && { username }),
+          ...(password && { password }),
+          no_ready_check: true,
+          ttl: 10,
+        };
+      },
+      inject: [ConfigService],
+    })
+  ],
+
+  // ...
+})
+```
+
+Nice! The console warning will now be gone.
 
 You can now inject the `CACHE_MANAGER` token into any service or controller to get access to the cache manager (as shown [here](https://www.tomray.dev/nestjs-caching-redis#injecting-the-cache-manager)).
 
@@ -1098,41 +1334,688 @@ export class CacheService {
   async reset(): Promise<void> {
     await this.cache.reset();
   }
-}
 
+  async onModuleDestroy() {
+    const redisClient = (this.cache.store as any).getClient();
+    redisClient.quit();
+  }
+}
 
 ```
 
 The 4 methods allow us to get, set, delete and reset the cache. The reset method will be used in a later step when we want to clear the cache before each e2e test!
 
+There's also a `onModuleDestroy` method is a built in NestJS lifecycle hook that will be called when the module is destroyed. This will be used to close the Redis connection when the application is shut down. The reason this is required is because [the Redis connection is kept open by default](https://github.com/nestjs/nest/issues/1621) which causes issues when running e2e tests.
+
 Finally, back in the `CommonModule`, add the `CacheService` to the providers and exports:
 
 ```ts:common.module.ts
-import { Global, Module } from '@nestjs/common';
-import { Logger } from './logger/logger.service';
-import { CacheService } from './cache/cache.service';
+import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import * as redisStore from 'cache-manager-redis-store';
 import config from '../config';
+import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { Logger } from './logger/logger.service';
+import { Global } from '@nestjs/common/decorators';
+import { MiddlewareConsumer } from '@nestjs/common/interfaces';
+import { LoggerMiddleware } from './logger/logger.middleware';
+import { RequestMethod } from '@nestjs/common/enums';
+import { CacheService } from './cache/cache.service';
+import { CacheModule } from '@nestjs/cache-manager';
+import * as redisStore from 'cache-manager-redis-store';
 
 @Global()
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, load: [config] }),
-    CacheModule.register({
-      isGlobal: true,
-      store: redisStore,
-      host: process.env.REDIS_HOST,
-      port: process.env.REDIS_PORT,
-      username: process.env.REDIS_USERNAME,
-      password: process.env.REDIS_PASSWORD,
-      no_ready_check: true,
+    CacheModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const username = configService.get('redis.username');
+        const password = configService.get('redis.password');
+        return {
+          isGlobal: true,
+          store: redisStore,
+          host: configService.get('redis.host'),
+          port: configService.get('redis.port'),
+          ...(username && { username }),
+          ...(password && { password }),
+          no_ready_check: true,
+          ttl: 10,
+        };
+      },
+      inject: [ConfigService],
     }),
   ],
-  providers: [Logger, CacheService],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: TransformResponseInterceptor },
+    Logger,
+    CacheService,
+  ],
   exports: [Logger, CacheService],
 })
-export class CommonModule {}
+export class CommonModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes({ path: '*', method: RequestMethod.ALL });
+  }
+}
+
 ```
 
 As mentioned above, as the `@Global()` decorator is used, the `CacheService` will be available to all modules.
+
+## Unit test set up
+
+In all of the projects ahead, we will be doing unit testing with Jest.
+
+The purpose of unit testing is to verify a small piece of behavior works.
+
+By adding unit tests, you're investing in your project so that the future version of yourself (or other colleagues working on the project) can operate with speed and confidence - they can add new functionality or do refactoring without worrying about breaking existing functionality.
+
+NestJS comes with a test runner (Jest) out of the box, however, there is 1 package we need to install to help with mocking.
+
+Before installing, let me provide a quick example.
+
+Imagine you have a method which fetches and returns a pokemon:
+
+```ts:pokemon.service.ts
+
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
+
+@Injectable()
+export class PokemonService {
+  constructor(private httpService: HttpService) {}
+
+  async getPokemon(id: number) {
+    const { data } = await this.httpService.axiosRef({
+      url: `https://pokeapi.co/api/v2/pokemon/${id}`,
+      method: `GET`,
+    });
+
+    if (!data || !data.species || !data.species.name) {
+      throw new InternalServerErrorException();
+    }
+
+    return data.species.name;
+  }
+}
+```
+
+This method takes in an ID and returns the respective Pokemon.
+
+In unit testing, a 'dependency' refers to a part of the system that your code relies on, like an external service or database. In the given example, the dependency is the HttpService, which is used to make an external API call to fetch the Pokémon details.
+
+When we test a unit of code, we want to isolate it from these external dependencies to ensure that we're only testing the logic of that specific piece of code. This isolation helps in pinpointing where an error might be happening, and it also ensures that the test is fast and reliable. We don't want our test to depend on the availability or behavior of an external service, as this could lead to false negatives or positives in our testing.
+
+That's where mocking comes into play. 'Mocking' is a technique where we replace a dependency with a 'fake' version that we control. This allows us to test our code's reaction to different scenarios without having to actually interact with the real dependency.
+
+Now, this is where the @golevelup/ts-jest package becomes invaluable. It provides utilities that make it easier to create these mocks and integrate them with Jest, the testing framework used by NestJS. By using @golevelup/ts-jest, we can simplify the process of setting up our mocks, writing our tests, and maintaining them as our code evolves.
+
+```shell
+pnpm add @golevelup/ts-jest --D
+```
+
+We'll go into lots of specific examples of mocking (using this package) in the projects ahead!
+
+## E2E & integration testing set up
+
+In all the projects ahead where relevant, we will do e2e and integration testing with Jest and Supertest.
+
+What is e2e and integration testing and what's the difference between the two?
+
+End-to-End (e2e) testing involves testing the complete flow of an application, from making the API request all the way to the backend processing and responses. Unlike unit testing, which focuses on individual components or functions, e2e testing simulates real-world user behavior and checks how the whole system operates together.
+
+Integration tests focus on testing the interaction between two or more units or components within an application. These can be interactions between different functions, classes, modules, or even external services like databases. The goal is to ensure that these parts work correctly when combined.
+
+So they are quite different.
+
+However, one commonality between e2e and integration tests is that they often involve actual dependencies, such as databases or external services, instead of using mocks or fakes. In our case, that's a Postgres database and Redis cache.
+
+This contrasts with unit testing, where isolating the unit under test is key. In e2e and integration testing, utilizing real dependencies is crucial, as the objective is to test how multiple components work together in a realistic environment. Mocking these dependencies could obscure issues and lead to false assurances, potentially defeating the purpose of these tests.
+
+Therefore, we need to update the built-in Jest config in NestJS with the following:
+
+1. Allow for both e2e tests and integration tests to be run
+2. Alongside the local setup, also have instances of both Postgres & Redis dedicated to running e2e and integration tests
+3. Update the scripts in package.json to run the tests using the test environment
+4. Ensure the state of the database and cache after each individual test is cleaned up so that the next test can run with a clean slate
+
+Let's dive in!
+
+You may have notice that NestJS comes up 2 Jest configs out of the box:
+
+1. `jest-e2e.json` - for e2e & integration tests
+2. The Jest config defined in `package.json` - for unit tests
+
+In the `jest-e2e.json` config file, it should look like this:
+
+```json:jest-e2e.json
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".e2e-spec.ts$",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  }
+}
+
+```
+
+Update the `testRegex` to the following:
+
+```json
+{
+  "testRegex": "(.e2e-spec.ts$|.int-spec.ts$)"
+}
+```
+
+This will mean you add the suffix `.e2e-spec.ts` to your e2e tests and `.int-spec.ts` to your integration tests used anywhere across the NestJS app.
+
+So the next thing to do is set up the dedicated testing environment for the Postgres database and Redis cache.
+
+We could use our local development set up, but that would mean our local database and cache state would be affected by the tests which is not helpful or ideal. Therefore, it makes sense to setup a dedicated environment for testing.
+
+Similar to our local development set up, we'll use Docker Compose.
+
+Add a new Docker Compose file at the root of the project called `docker-compose-test.yml`.
+
+Here's how it should look:
+
+```yml:docker-compose-test.yml
+version: '3.8'
+
+services:
+  nestjs_postgres_test:
+    image: postgres:alpine
+    container_name: test_postgres
+    restart: 'no'
+    env_file:
+      - .env.test
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    ports:
+      - '5444:5432' # Different port to avoid conflict with the development environment
+    volumes:
+      - test_postgres_data:/var/lib/postgresql/data
+
+  nestjs_redis_test:
+    image: redis:alpine
+    container_name: test_redis
+    ports:
+      - '6380:6379' # Different port to avoid conflict with the development environment
+    volumes:
+      - test_redis_data:/data
+
+networks:
+  default:
+    name: nestjs_starter_test
+
+volumes:
+  nestjs_postgres_test:
+  nestjs_redis_test:
+
+```
+
+You'll notice it's very similar to our local development set up, except:
+
+- we've changed the ports and container names to avoid conflicts with the local development environment
+- I've changed the env_file directive to point to .env.test, assuming that this file will contain the specific environment variables for your testing setup.
+- I've set the restart policy to 'no' for the testing environment. In a development environment, you might want services to restart automatically if they fail, but in a testing environment, a failure is usually something you want to investigate.
+
+Let's add the `.env.test` file which will contain the environment variables for the test environment (note the ports should match what's in the docker compose file we just added):
+
+```env:.env.test
+NODE_ENV="test"
+
+POSTGRES_HOST="localhost"
+POSTGRES_PORT="5444" # Matches the port in docker-compose-test.yml
+POSTGRES_NAME="mydb"
+POSTGRES_USER="username"
+POSTGRES_PASSWORD="password"
+
+DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_NAME}?schema=public"
+
+REDIS_HOST="localhost"
+REDIS_PORT="6380" # Matches the port in docker-compose-test.yml
+REDIS_USERNAME=""
+REDIS_PASSWORD=""
+```
+
+To test that this works, run the following command:
+
+```shell
+docker-compose -f docker-compose-test.yml up -d
+```
+
+Both services should now be running!
+
+However, we don't want to run them on our local machine (that was just to see if everything was set up okay). We want these to be spun up before our e2e and integration tests so they can be used in them.
+
+Let's now get into setting up the scripts in package.json to do this!
+
+You'll notice in the built-in package.json file, there's already a script for running e2e tests:
+
+```json:package.json
+{
+  "scripts": {
+    "test:e2e": "jest --config ./jest-e2e.json"
+  }
+}
+```
+
+Let's first tweak this to use the `--runInBand` flag provided by Jest:
+
+```json:package.json
+{
+  "scripts": {
+    "test:e2e": "jest --runInBand --config ./jest-e2e.json"
+  }
+}
+```
+
+This flag causes all tests to be run serially in the current process rather than creating a worker pool of child processes to run tests concurrently.
+
+This is important for our test set up because each test may make state changes to the database or cache, and we want to ensure that each test runs in a clean environment.
+
+The other tweak we need to make is to make sure the test environment variables in `.env.test` are used when running the e2e and integration tests, as this is where all the credentials for the test database and cache are stored.
+
+To do this, we need to install a package as a dev dependency called `dotenv-cli`:
+
+```shell
+pnpm add dotenv-cli --save-dev
+```
+
+The command `dotenv -e env.test --` will load the environment variables from the env.test file before running the Jest tests, so let's update the `test:e2e` script to use this:
+
+```json:package.json
+{
+  "scripts": {
+    "test:e2e": "dotenv -e env.test -- jest --runInBand --config ./jest-e2e.json"
+  }
+}
+```
+
+Nice! The next thing we need to do is setup the scripts to start the Docker services before all the tests are run and stop them after all the tests are run.
+
+Here's the flow of how we want the scripts to execute:
+
+1. Start the Docker services
+2. Run the tests
+3. Stop the Docker services
+
+Let's start by adding a couple of Docker scripts (to solve point 1 and 4) for handling the starting and stopping of the Docker services:
+
+```json:package.json
+{
+  "scripts": {
+    "docker:start:test": "docker-compose -f docker-compose-test.yml up -d",
+    "docker:down:test": "docker-compose -f docker-compose-test.yml down"
+  }
+}
+```
+
+We can now update the testing script to:
+
+```json:package.json
+{
+  "scripts": {
+    "test:e2e": "pnpm docker:start:test && dotenv -e env.test jest --runInBand --config ./jest-e2e.json && pnpm docker:down:test"
+  }
+}
+```
+
+Running `pnpm test:e2e` should now start the Docker services, run the tests, and then stop the Docker services.
+
+In a real-world scenario, databases often take some time to initialize, especially when they have to set up data structures, perform recovery procedures, or load large datasets. If you attempt to run tests or connect to the database before it's ready, you may encounter errors or unexpected behavior.
+
+So, what we need to do is add a database readiness check before running the tests. We can tweak the docker compose test file by adding a healthcheck to the Postgres service:
+
+```yml:docker-compose-test.yml
+version: '3.8'
+
+services:
+  test_nestjs_postgres:
+    image: postgres:alpine
+    container_name: test_nestjs_postgres
+    restart: 'no'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $POSTGRES_USER']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      // ... rest of the file
+```
+
+This uses the pg_isready command to check the database's availability. It will run every 10 seconds, and if it fails, it will retry 5 times before giving up.
+
+This is exactly what we need!
+
+The next (and final) thing we need to do to finish the setup is to add a script to reset and migrate the database to a clean slate before running the tests.
+
+This ensures that the schema and database structure are in the correct state before the tests run.
+
+Let's add a script to handle this now:
+
+```json:package.json
+{
+  ...
+
+  "scripts": {
+    // other scripts
+    "db:migrate:test": "dotenv -e .env.test -- npx prisma migrate reset --force --skip-seed", // used to clear database before each e2e test
+  }
+
+  ...
+}
+```
+
+Let me explain what's happening with this script:
+
+- We're using the `dotenv` command to load the environment variables from the `.env.test` file before running the command. If you look in your `prisma.schema` file, you'll see it references the database URL from the environment variables. Using the `dotenv` command ensures that the correct database URL (from `.env.test`) is used when running the command.
+- `npx prisma migrate reset` will reset the database to a clean state. This means that all the data in the database will be deleted, and the schema will be recreated.
+- The `--force` flag is used to skip the confirmation prompt and the `--skip-seed` flag is used to skip seeding the database with data. We don't need to seed the database with data because we'll be doing this in the tests.
+
+If you run the command `pnpm db:migrate:test` locally, you'll get the following error:
+
+```shell
+You don't have any models defined in your schema.prisma, so nothing will be generated.
+You can define a model like this:
+
+model User {
+  id    Int     @id @default(autoincrement())
+  email String  @unique
+  name  String?
+}
+```
+
+This is because we haven't defined any models in our `prisma.schema` file yet. We'll do this in the projects ahead and update the `pnpm test:e2e` script to include the `pnpm db:migrate:test` script then.
+
+To recap, here's what we've done so far:
+
+1. ~Allow for both e2e tests and integration tests to be run~
+2. ~Alongside the local setup, also have instances of both Postgres & Redis dedicated to running e2e and integration tests~
+3. ~Update the scripts in package.json to run the tests using the test environment~
+4. Ensure the state of the database and cache after each individual test is cleaned up so that the next test can run with a clean slate
+
+So the final part is clearing the database and cache after each individual test is run.
+
+For the cache, we already added a method called `reset()` to the `CacheService` in the previous section. This method will clear the cache.
+
+To clear the database, let's add a method called `resetDb` to the existing `DatabaseService`:
+
+```ts:database.service.ts
+import { Injectable, OnModuleInit } from '@nestjs/common';
+import { PrismaClient } from '@prisma/client';
+
+@Injectable()
+export class DatabaseService extends PrismaClient implements OnModuleInit {
+  async onModuleInit() {
+    await this.$connect();
+  }
+
+  async resetDb() {
+    const tablenames: Array<{ tablename: string }> = await this.$queryRaw<
+      Array<{ tablename: string }>
+    >`SELECT tablename FROM pg_tables WHERE schemaname='public'`;
+
+    const tables = tablenames
+      .map(({ tablename }) => tablename)
+      .filter((name) => name !== '_prisma_migrations')
+      .map((name) => `"public"."${name}"`)
+      .join(', ');
+
+    try {
+      await this.$executeRawUnsafe(`TRUNCATE TABLE ${tables} CASCADE;`);
+    } catch (error) {
+      console.log({ error });
+    }
+  }
+}
+
+
+```
+
+This is [how Prisma recommends](https://www.prisma.io/docs/concepts/components/prisma-client/crud#delete-all-records) to delete all records in all the tables in a database.
+
+Inside the `/test` directory in the `jest-e2e.json` file, add the setupFiles property like this:
+
+```json:jest-e2e.json
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": "(.e2e-spec.ts$|.int-spec.ts$)",
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "setupFilesAfterEnv": ["./setup.ts"]
+}
+
+```
+
+Then add a new file called `setup.ts` and add the following code:
+
+```ts:setup.ts
+import { INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppModule } from '../src/app.module';
+import { CacheService } from '../src/common/cache/cache.service';
+import { DatabaseService } from '../src/database/database.service';
+
+let app: INestApplication;
+let moduleFixture: TestingModule;
+let cache: CacheService;
+let database: DatabaseService;
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleFixture.createNestApplication();
+  cache = moduleFixture.get<CacheService>(CacheService);
+  database = moduleFixture.get<DatabaseService>(DatabaseService);
+  await app.init();
+});
+
+afterEach(async () => {
+  await database.resetDb();
+  await cache.reset();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+```
+
+Let's talk through what we're doing here:
+
+- We're using Jest's `beforeAll` hook to create the NestJS application and initialize it. We're also getting the `CacheService` and `DatabaseService` instances from the NestJS application. This will run once before all the tests are run.
+- We're using Jest's `afterEach` hook to reset the database and cache after each individual test is run. This ensures that the database and cache are in a clean state before each test is run.
+- Finally we're using Jest's `afterAll` hook to close the NestJS application after all the tests are run. This ensures that the NestJS application is closed after all the tests are run and closes the connection to the database.
+
+If you run the test with command `pnpm test:e2e`, you'll get an error:
+
+```shell
+Nest could not find DatabaseService element (this provider does not exist in the current context)
+```
+
+This is because in this starter repo, we've not imported the `DatabaseModule` anywhere so it's not available in the `AppModule`.
+
+In the projects ahead, we'll be using the `DatabaseModule` a lot, so for now let's just comment out the `resetDb()` method in our tests so we can easliy add it back later on:
+
+```ts:setup.ts
+import { HttpServer, INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppModule } from '../src/app.module';
+import { CacheService } from '../src/common/cache/cache.service';
+// import { DatabaseService } from '../src/database/database.service';
+
+let app: INestApplication;
+let server: HttpServer;
+let moduleFixture: TestingModule;
+let cache: CacheService;
+// let database: DatabaseService;
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleFixture.createNestApplication();
+  cache = moduleFixture.get<CacheService>(CacheService);
+  // database = moduleFixture.get<DatabaseService>(DatabaseService);
+  await app.init();
+  server = app.getHttpServer();
+});
+
+afterEach(async () => {
+  // await database.resetDb();
+  await cache.reset();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+export { app, server };
+
+```
+
+There's another optimization we can make to this setup.
+
+In the default test file that NestJS generates, you'll see that the `beforeEach` hook is used to create a new instance of the `Test` object, and then each test uses `app.getHttpServer()` to get the instance of the NestJS application and make requests to it.
+
+```ts:app.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../src/app.module';
+
+describe('AppController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect({ data: 'Hello World!' });
+  });
+});
+```
+
+The thing is, in our setup file, we're already creating an app instance and initializing it. So we can just use this instance in our tests instead of creating a new instance of the `Test` object and getting the app instance from it. First export the server from the setup file:
+
+```ts:setup.ts
+import { HttpServer, INestApplication } from '@nestjs/common';
+import { Test, TestingModule } from '@nestjs/testing';
+import { AppModule } from '../src/app.module';
+import { CacheService } from '../src/common/cache/cache.service';
+import { DatabaseService } from '../src/database/database.service';
+
+let app: INestApplication;
+let server: HttpServer; // <--- Define the server instance variable
+let moduleFixture: TestingModule;
+let cache: CacheService;
+// let database: DatabaseService;
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile();
+
+  app = moduleFixture.createNestApplication();
+  cache = moduleFixture.get<CacheService>(CacheService);
+  // database = moduleFixture.get<DatabaseService>(DatabaseService);
+  await app.init();
+  server = app.getHttpServer(); // <--- Get the server instance
+});
+
+afterEach(async () => {
+  // await database.resetDb();
+  await cache.reset();
+});
+
+afterAll(async () => {
+  await app.close();
+});
+
+export { server }; // <--- Export the server instance
+
+```
+
+And now all the tests can use the server instance from the setup file:
+
+```ts:app.e2e-spec.ts
+import * as request from 'supertest';
+import { server } from './setup';
+
+describe('AppController (e2e)', () => {
+  it('/ (GET)', () => {
+    return request(server)
+      .get('/')
+      .expect(200)
+      .expect({ data: 'Hello World!' });
+  });
+});
+
+```
+
+This is much cleaner and prevents a lot of duplicate module set up!
+
+## Setting up a CI pipeline
+
+Now that we have our tests set up, let's set up a CI pipeline in Github Actions to run them.
+
+Specifically, our CI pipeline will automatically run the unit tests, integration & e2e tests on every pull request and push to the `main` branch.
+
+In the root of your project, add a `.github` directory and the following sub directories and files:
+
+```
+.github
+└── actions
+    └── build
+        └── action.yml
+└── workflows
+    └── test.yml
+```
+
+In the `test.yml` file, add the following:
+
+```yml:.github/workflows/test.yml
+name: Tests
+on: workflow_dispatch
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/build
+      - name: Run tests
+        run: pnpm test
+
+```
+
+The `on: workflow_dispatch` is set temporarily so we can test the worklfow in Github. We'll update it shortly to run on every pull request and push to the `main` branch.
+
+You can see I've added a single job called `unit-tests` which has the following steps:
+
+- The checkout action is used to fetch your repository's code, making it available for subsequent steps in the workflow.
+- The build action points to a file (that we'll add below) that installs the dependencies in the repository
+- And then finally, the command `pnpm test` is used to run the unit tests
