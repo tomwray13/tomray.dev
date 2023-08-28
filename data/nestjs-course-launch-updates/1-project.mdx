@@ -1284,6 +1284,642 @@ Our API now has full CRUD functionality, great work!
 
 ## Unit tests
 
+A unit test is an automation you have in your code that verifies a small piece of behavior.
+
+Implemented correctly, unit testing can have an excellent return on investment.
+
+By adding unit tests, you're investing in your project so that the future version of yourself (or other colleagues working on the project) can operate with speed and confidence as you add new features or refactor existing code.
+
+So we want to add some unit tests to our project to test the `UrlService` methods and make sure they're working as expected.
+
+The `url.service.spec.ts` unit test file should already exist in your project, it should look like this:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+
+describe('UrlService', () => {
+  let service: UrlService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [UrlService],
+    }).compile()
+
+    service = module.get<UrlService>(UrlService)
+  })
+
+  it('should be defined', () => {
+    expect(service).toBeDefined()
+  })
+})
+```
+
+Let's first go through the auto-generated NestJS test file to understand what's going on.
+
+First of all, as the file name includes `spec.ts`, [Jest](https://jestjs.io/) (the testing framework used in NestJS) automatically picks up the test. Any other files in your project with `spec.ts` will get picked up by Jest.
+
+Inside the file itself, it starts off with a `describe` block:
+
+```ts:url.service.spec.ts
+describe('UrlService', () => {
+  // ...
+});
+```
+
+The purpose of `describe` block is to group related tests, so here we are grouping all tests related to the `UrlService`.
+
+Next, we have a `beforeEach` hook:
+
+```ts:tweets.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { UrlService } from './url.service';
+
+describe('UrlService', () => {
+  let service: UrlService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [UrlService],
+    }).compile();
+
+    service = module.get<UrlService>(UrlService);
+  });
+
+  // ...
+});
+
+```
+
+A `beforeEach` hook handles any setup work that needs to happen before running each test.
+
+So what the `beforeEach` hook is doing here is using the NestJS built-in `Test` class to create an isolated NestJS runtime (so you get all the NestJS behaviors like dependency injection).
+
+This runtime is limited to what you define when using the `Test` class - in our example above we're creating a NestJS runtime with just the `UrlService`.
+
+Therefore, this setup gives us access to all the methods inside the `UrlService`.
+
+The final part to review from the auto-generated NestJS test file is the test!
+
+You'll notice a test called `it should be defined`:
+
+```ts:tweets.service.spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { UrlService } from './url.service';
+
+describe('UrlService', () => {
+  // ...
+
+  it('should be defined', () => {
+    expect(service).toBeDefined();
+  });
+});
+
+```
+
+Using the `expect` function from Jest is an [assertion](https://en.wikipedia.org/wiki/Test_assertion).
+
+All your `expect` functions will have another method chained to check that certain conditions are met.
+
+In this example, it's `toBeDefined()`. So this test is ensuring that the `TweetsService` is defined.
+
+Run the following command to run the unit tests (with hot reloading):
+
+```bash
+pnpm test:watch
+```
+
+The tests should actually fail! You'll see an error similar to:
+
+```bash
+Nest can't resolve dependencies of the UrlService (?, DatabaseService, ConfigService). Please make sure that the argument UidService at index [0] is available in the RootTestModule context.
+```
+
+You're seeing this error because Jest is trying to run the test but the testing instance is missing 3 dependencies: the `UidService`, `DatabaseService` and `ConfigService`.
+
+So we need to provide these dependencies to the testing module so that when the tests are run, the dependency we pass into the testing module can be used inside the `UrlService`.
+
+This is one of the biggest benefits of dependency injection - you can swap out the dependency with a more appropriate alternative for testing purposes.
+
+For example, we could pass in the actual `DatabaseService` which makes actual calls to our database **OR** we could pass in a 'test double' of the `DatabaseService` which essentially pretends to make database calls..
+
+This is super powerful!
+
+With all that being said, for demonstration purposes let's fix the dependency injection error by importing the real dependencies into the `Test` class as it's helpful for understanding the NestJS modules.
+
+If you remember, our `UrlService` has 3 dependencies injected into the constructor, the `UidService`, `DatabaseService` and `ConfigService`:
+
+```ts
+// ... imports
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+}
+```
+
+So the tests are failing because when the NestJS runtime is created using the `Test` class, it doesn't know how to inject these dependencies. They are required to instantiate the `UrlService`.
+
+An indication of how this could be fixed is by looking inside the `url.module.ts` file to see what's imported:
+
+```ts
+import { Module } from '@nestjs/common'
+import { UrlService } from './url.service'
+import { UrlController } from './url.controller'
+import { UidModule } from '../../services/uid/uid.module'
+import { DatabaseModule } from '../../database/database.module'
+
+@Module({
+  imports: [UidModule, DatabaseModule],
+  providers: [UrlService],
+  // ...
+})
+export class UrlModule {}
+```
+
+So let's try and update the `Test` class to also import the `UidModule` and `DatabaseModule`:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { UidModule } from '../../services/uid/uid.module'
+import { DatabaseModule } from '../../database/database.module'
+
+describe('UrlService', () => {
+  let service: UrlService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [UidModule, DatabaseModule],
+      providers: [UrlService],
+    }).compile()
+
+    service = module.get<UrlService>(UrlService)
+  })
+})
+```
+
+The test will still be failing, although if you look carefully the error is now different:
+
+```bash
+Please make sure that the argument ConfigService at index [2] is available in the RootTestModule context.
+```
+
+We're still missing the `ConfigService` dependency! You might be thinking - why is this not imported into the `UrlModule` like the other dependencies?
+
+That's because the `ConfigService` is a global dependency that's used throughout the application (defined in the `CommonModule` - we set this up in the NestJS starter).
+
+It's also worth noting that the `ConfigService` is being used within the constructor:
+
+```ts
+// ... imports
+
+@Injectable()
+export class UrlService {
+  private host: string
+  constructor(
+    private readonly uidService: UidService,
+    private readonly databaseService: DatabaseService,
+    private readonly configService: ConfigService
+  ) {
+    this.host = this.configService.getOrThrow(`host`)
+  }
+
+  // ...
+}
+```
+
+This makes mocking the `ConfigService` a little more difficult as we can't just pass in a test double like we can with the `UidService` and `DatabaseService`.
+
+So in our `Test` class, we can import the `ConfigModule` and set a value for `host` directly:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { ConfigModule } from '@nestjs/config'
+import { UidModule } from '../../services/uid/uid.module'
+import { DatabaseModule } from '../../database/database.module'
+
+describe('UrlService', () => {
+  const host = `localhost:3000`
+  let urlService: UrlService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        UidModule,
+        DatabaseModule,
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              host,
+            }),
+          ],
+        }),
+      ],
+      providers: [UrlService],
+    }).compile()
+
+    urlService = module.get<UrlService>(UrlService)
+  })
+
+  it('should be defined', () => {
+    expect(service).toBeDefined()
+  })
+})
+```
+
+If you've still got `pnpm test:watch` running, you should now see the test passing!
+
+As mentioned above though, it's not a good idea in unit testing to import the real dependencies into the `Test` class. Why? Because unit testing is all about testing the end result of a method and using the real dependencies can make it very difficult to test the end result.
+
+This is best explained by an example.
+
+Let's say we want to test the `create()` method in the `UrlService`:
+
+```ts
+async create(createUrlDto: CreateUrlDto) {
+  const uid = this.uidService.generate();
+  const url = await this.databaseService.url.create({
+    data: {
+      ...createUrlDto,
+      url: `${this.host}/${uid}`,
+    },
+  });
+  return url;
+}
+```
+
+This method's goal is to return a url record using the data passed into the payload (via `createUrlDto`).
+
+☝️ In unit testing, we're concerned with testing the end result of a method, not any side effects or implementation details. Integration and e2e testing (which we'll do later on) are better suited for testing how multiple methods and dependencies work together.
+
+So we want to test that the method returns a url record with some different scenarios for the payload. For example:
+
+- The method should return a url record with the correct `title`, `description`, `redirect` and `url` fields
+- The method should return a url record with the correct `title`, `description`, `redirect` and `url` fields when the `createUrlDto` is missing the `description` field
+
+If we use the real dependencies in our tests, we're going to struggle to implement these tests. For example, we could test the method using this valid payload:
+
+```ts
+const createUrlDto = {
+  title: 'Google',
+  description: 'Search engine',
+  redirect: 'https://google.com',
+}
+```
+
+But when we test the expected response for this payload, we have no idea what the `uid` value will be because it's randomly generated by the `UidService`.
+
+So the solution for this is to use a 'test double' for the dependencies instead of using the real dependencies. This way we can control the output of the dependencies and test the end result of the method.
+
+Let's update the `Test` class to use test doubles:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { ConfigModule } from '@nestjs/config'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+
+const host = `localhost:3000`
+
+describe('UrlService', () => {
+  let urlService: UrlService
+  let uidService: DeepMocked<UidService>
+  let databaseService: DeepMockProxy<DatabaseService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              host,
+            }),
+          ],
+        }),
+      ],
+      providers: [
+        UrlService,
+        {
+          provide: UidService,
+          useValue: createMock<UidService>(),
+        },
+        {
+          provide: DatabaseService,
+          useValue: mockDeep<DatabaseService>(),
+        },
+      ],
+    }).compile()
+
+    urlService = module.get<UrlService>(UrlService)
+    uidService = module.get(UidService)
+    databaseService = module.get(DatabaseService)
+  })
+
+  // ...
+})
+```
+
+It's a little confusing as the 2 dependencies (`UidService` and `DatabaseService`) are handled differently. Let me explain:
+
+- The UidService is standard NestJS @Injectable class that Jest can easily mock using the `createMock` method from the `@golevelup/ts-jest` package. This method takes in the class you want to mock and returns back a test double.
+- The DatabaseService is a little more complicated. It's a NestJS @Injectable class but it's also a Prisma Client instance. So we need to use the `mockDeep` method from the `jest-mock-extended` package to create a test double. This method takes in the class you want to mock and returns back a test double.
+
+Let's start diving into some examples as it's the best way to learn and explore how the mocking works!
+
+Let's begin with the `create()` method, we'll test these scenarios:
+
+- The method should return a url record with the correct `title`, `description`, `redirect` and `url` fields
+- The method should return a url record with the correct `title`, `description`, `redirect` and `url` fields when the `createUrlDto` is missing the `description` field
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { createMock } from '@golevelup/ts-jest'
+import { ConfigModule } from '@nestjs/config'
+
+describe('UrlService', () => {
+  // ...
+
+  describe(`create`, () => {
+    it(`should create a url`, async () => {
+      const payload = {
+        title: 'Google',
+        description: 'A search engine',
+        redirect: 'https://google.com',
+      }
+      const url = await urlService.create({
+        redirect: payload.redirect,
+        title: payload.title,
+        description: payload.description,
+      })
+      expect(url).toEqual(payload)
+    })
+  })
+})
+```
+
+If you're local test runner is still running, you should see the test failing with the following error:
+
+```bash
+● UrlService › create › should create a url
+
+    TypeError: Cannot convert object to primitive value
+
+      23 |       data: {
+      24 |         ...createUrlDto,
+    > 25 |         url: `${this.host}/${uid}`,
+         |                              ^
+      26 |       },
+      27 |     });
+      28 |     return url;
+
+      at UrlService.create (modules/url/url.service.ts:25:30)
+      at Object.<anonymous> (modules/url/url.service.spec.ts:40:36)
+```
+
+This is because the `UidService` is now a test double so when the test runs for this method, instead of returning a UID it now returns an empty object by default:
+
+```ts
+async create(createUrlDto: CreateUrlDto) {
+  const uid = this.uidService.generate(); // <-- this line is returning an empty object as it's mocked
+  const url = await this.databaseService.url.create({
+    data: {
+      ...createUrlDto,
+      url: `${this.host}/${uid}`,
+    },
+  });
+  return url;
+}
+```
+
+The same can be said for the `DatabaseService`.
+
+So within each test we write, we need the ability to control the output of the test doubles so we can test the end result of the method.
+
+Let's use some Jest methods to control the output of the test doubles:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { ConfigModule } from '@nestjs/config'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+
+const host = `localhost:3000`
+
+describe('UrlService', () => {
+  // ...
+
+  describe(`create`, () => {
+    it(`should create a url`, async () => {
+      // Arrange
+      const uid = `abc123`
+      const payload = {
+        id: 1,
+        title: 'Google',
+        description: 'A search engine',
+        redirect: 'https://google.com',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        url: `${host}/${uid}`,
+      }
+      uidService.generate.mockReturnValueOnce(uid) // <-- this line is controlling the output of the uid.generate() double
+      databaseService.url.create.mockResolvedValueOnce(payload) // <-- this line is controlling the output of the database.url.create double
+
+      // Act
+      const url = await urlService.create({
+        redirect: payload.redirect,
+        title: payload.title,
+        description: payload.description,
+      })
+
+      // Asserts
+      expect(url).toEqual(payload)
+    })
+  })
+})
+```
+
+Now your test should be passing!
+
+You'll see in the test I've followed the Arrange/Act/Assert testing approach:
+
+- Arrange: This is where you set up the test. In our case, we're setting up the test doubles and controlling the output of the test doubles.
+- Act: This is where you run the method you want to test. In our case, we're running the `create()` method.
+- Assert: This is where you check the end result of the method. In our case, we're checking that the method returns back the correct url record.
+
+Let's add another test to check that the method returns back the correct url record when the `description` field is missing from the payload:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { ConfigModule } from '@nestjs/config'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+
+const host = `localhost:3000`
+
+describe('UrlService', () => {
+  // ...
+
+  describe(`create`, () => {
+    // ...
+
+    it(`should create a url with missing description`, async () => {
+      // Arrange
+      const uid = `abc123`
+      const payload = {
+        id: 1,
+        title: 'Google',
+        description: null,
+        redirect: 'https://google.com',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        url: `${host}/${uid}`,
+      }
+      uidService.generate.mockReturnValueOnce(uid) // <-- this line is controlling the output of the uid.generate() double
+      databaseService.url.create.mockResolvedValueOnce(payload) // <-- this line is controlling the output of the database.url.create double
+
+      // Act
+      const url = await urlService.create({
+        redirect: payload.redirect,
+        title: payload.title,
+      })
+
+      // Asserts
+      expect(url).toEqual(payload)
+    })
+  })
+})
+```
+
+You may have noticed there's a bit of repeated code in the tests - specifically in the "Arrange" parts, the payload and uid variables are repeated.
+
+We can refactor this by creating a new file called `test-utils.ts` inside a new directory called `__tests__` within the `url` directory.
+
+In this file, add the following:
+
+```ts
+export const host = `http://localhost:3000`
+
+export const uid = `abc123`
+
+export const generateUrlPayload = ({ description }: { description?: null }) => ({
+  id: 1,
+  title: 'Google',
+  description: description === null ? null : 'A search engine',
+  redirect: 'https://google.com',
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  url: `${host}/${uid}`,
+})
+```
+
+We can now refactor the tests to use this file:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UrlService } from './url.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { ConfigModule } from '@nestjs/config'
+import { UidService } from '../../services/uid/uid.service'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+import { generateUrlPayload, host, uid } from './__tests__/test-utils'
+
+describe('UrlService', () => {
+  let urlService: UrlService
+  let uidService: DeepMocked<UidService>
+  let databaseService: DeepMockProxy<DatabaseService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              host,
+            }),
+          ],
+        }),
+      ],
+      providers: [
+        UrlService,
+        {
+          provide: UidService,
+          useValue: createMock<UidService>(),
+        },
+        {
+          provide: DatabaseService,
+          useValue: mockDeep<DatabaseService>(),
+        },
+      ],
+    }).compile()
+
+    urlService = module.get<UrlService>(UrlService)
+    uidService = module.get(UidService)
+    databaseService = module.get(DatabaseService)
+  })
+
+  it('should be defined', () => {
+    expect(urlService).toBeDefined()
+  })
+
+  describe(`create`, () => {
+    it(`should create a url`, async () => {
+      // Arrange
+      const payload = generateUrlPayload({})
+      uidService.generate.mockReturnValueOnce(uid)
+      databaseService.url.create.mockResolvedValueOnce(payload)
+
+      // Act
+      const url = await urlService.create({
+        redirect: payload.redirect,
+        title: payload.title,
+        ...(payload.description && { description: payload.description }),
+      })
+
+      // Asserts
+      expect(url).toEqual(payload)
+    })
+
+    it(`should create a url with missing description`, async () => {
+      // Arrange
+      const payload = generateUrlPayload({ description: null })
+      uidService.generate.mockReturnValueOnce(uid)
+      databaseService.url.create.mockResolvedValueOnce(payload)
+
+      // Act
+      const url = await urlService.create({
+        redirect: payload.redirect,
+        title: payload.title,
+      })
+
+      // Asserts
+      expect(url).toEqual(payload)
+    })
+  })
+})
+```
+
 ## API key authentication
 
 ## E2E testing
@@ -1291,6 +1927,10 @@ Our API now has full CRUD functionality, great work!
 ## Deployment
 
 <!-- TODO: use Prisma generated types in DTOs and controllers -->
+
+```
+
+```
 
 ```
 
