@@ -1920,26 +1920,677 @@ describe('UrlService', () => {
 })
 ```
 
+Let's next add some tests for the `findAll` method:
+
+```ts
+// ...
+describe(`findAll`, () => {
+  it(`should return array of urls in data property`, async () => {
+    const response = [generateUrlPayload({})]
+    databaseService.url.findMany.mockResolvedValueOnce(response)
+    databaseService.url.count.mockResolvedValueOnce(response.length)
+
+    const url = await urlService.findAll({})
+
+    expect(url.data).toEqual(response)
+  })
+
+  it(`should return empty array when no urls exist`, async () => {
+    databaseService.url.findMany.mockResolvedValueOnce([])
+    databaseService.url.count.mockResolvedValueOnce(0)
+
+    const url = await urlService.findAll({})
+
+    expect(url.data).toEqual([])
+  })
+
+  it(`should correctly indicate first page`, async () => {
+    databaseService.url.findMany.mockResolvedValue(generateUrlArray())
+    databaseService.url.count.mockResolvedValue(9)
+
+    const getUrlsDto = {
+      page: 1,
+      limit: 3,
+    }
+    const result = await urlService.findAll(getUrlsDto)
+
+    expect(result.meta).toEqual({
+      totalCount: 9,
+      currentPage: 1,
+      perPage: 3,
+      totalPages: 3,
+      hasNextPage: true,
+      hasPreviousPage: false,
+    })
+  })
+
+  it(`should correctly indicate middle page`, async () => {
+    databaseService.url.findMany.mockResolvedValue(generateUrlArray())
+    databaseService.url.count.mockResolvedValue(9)
+
+    const getUrlsDto = {
+      page: 2,
+      limit: 3,
+    }
+    const result = await urlService.findAll(getUrlsDto)
+
+    expect(result.meta).toEqual({
+      totalCount: 9,
+      currentPage: 2,
+      perPage: 3,
+      totalPages: 3,
+      hasNextPage: true,
+      hasPreviousPage: true,
+    })
+  })
+
+  it(`should correctly indicate last page`, async () => {
+    databaseService.url.findMany.mockResolvedValue(generateUrlArray())
+    databaseService.url.count.mockResolvedValue(9)
+
+    const getUrlsDto = {
+      page: 3,
+      limit: 3,
+    }
+    const result = await urlService.findAll(getUrlsDto)
+
+    expect(result.meta).toEqual({
+      totalCount: 9,
+      currentPage: 3,
+      perPage: 3,
+      totalPages: 3,
+      hasNextPage: false,
+      hasPreviousPage: true,
+    })
+  })
+})
+```
+
+You may have noticed I've added a new utility method to the `test-util.ts` file called `generateUrlArray()` which looks like this:
+
+```ts
+// ...
+export const generateUrlArray = () => [
+  {
+    id: 1,
+    title: 'Google',
+    description: 'A search engine',
+    redirect: 'https://google.com',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    url: `${host}/${uid}`,
+  },
+  {
+    id: 2,
+    title: 'Facebook',
+    description: 'A social media platform',
+    redirect: 'https://facebook.com',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    url: `${host}/facebook-unique-id`,
+  },
+  {
+    id: 3,
+    title: 'Twitter',
+    description: 'A social media platform',
+    redirect: 'https://twitter.com',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    url: `${host}/twitter-unique-id`,
+  },
+]
+```
+
+This helps to generate an array of url records which we can use in the tests.
+
+Let's now take a look at the remaining methods in the `UrlService`:
+
+```ts
+// ...
+async findOne(uid: string) {
+  return await this.databaseService.url.findUnique({
+    where: {
+      url: `${this.host}/${uid}`,
+    },
+  });
+}
+
+async update(id: number, updateUrlDto: UpdateUrlDto) {
+  return await this.databaseService.url.update({
+    where: {
+      id,
+    },
+    data: updateUrlDto,
+  });
+}
+
+async remove(id: number) {
+  return await this.databaseService.url.delete({
+    where: {
+      id,
+    },
+  });
+}
+```
+
+Let's add the tests for these:
+
+```ts
+describe(`findOne`, () => {
+  it(`should return respective url record`, async () => {
+    // Arrange
+    const uidLookup = uid
+    const payload = generateUrlPayload({})
+    databaseService.url.findUnique.mockResolvedValueOnce(
+      payload.url === `${host}/${uidLookup}` ? payload : null
+    )
+
+    // Act
+    const url = await urlService.findOne(uidLookup)
+
+    // Asserts
+    expect(url).toEqual(payload)
+  })
+
+  it(`should return null when url record not found`, async () => {
+    // Arrange
+    const uidLookup = `random url`
+    const payload = generateUrlPayload({})
+    databaseService.url.findUnique.mockResolvedValueOnce(
+      payload.url === `${host}/${uidLookup}` ? payload : null
+    )
+
+    // Act
+    const url = await urlService.findOne(uidLookup)
+
+    // Asserts
+    expect(url).toEqual(null)
+  })
+})
+
+describe(`update`, () => {
+  it(`should return respective updated url record`, async () => {
+    // Arrange
+    const original = generateUrlPayload({})
+    const updatePayload = { title: `updated title` }
+    const payload = { ...original, ...updatePayload }
+    const id = payload.id
+    databaseService.url.update.mockResolvedValueOnce(payload)
+
+    // Act
+    const url = await urlService.update(id, updatePayload)
+
+    // Asserts
+    expect(url).toEqual(payload)
+  })
+})
+
+describe(`remove`, () => {
+  it(`should return removed url record`, async () => {
+    // Arrange
+    const payload = generateUrlPayload({})
+    const id = payload.id
+    databaseService.url.delete.mockResolvedValueOnce(payload)
+
+    // Act
+    const url = await urlService.remove(id)
+
+    // Asserts
+    expect(url).toEqual(payload)
+  })
+})
+```
+
+The tests should be self-explanatory, so I won't go into detail on them. Check out the video tutorial if you'd like more of an explainer.
+
+The final unit test we should add is for the custom `UrlExistsPipe` we added. Here's a reminder of the code:
+
+```ts
+import { PipeTransform, Injectable, NotFoundException } from '@nestjs/common'
+import { UrlService } from '../url.service'
+
+@Injectable()
+export class UrlExistsPipe implements PipeTransform {
+  constructor(private readonly urlService: UrlService) {}
+  async transform(value: string) {
+    const shortUrl = await this.urlService.findOne(value)
+    if (!shortUrl) {
+      throw new NotFoundException(`URL ${value} does not exist`)
+    }
+    return shortUrl
+  }
+}
+```
+
+As a reminder, this is a pipe that's used as a validation layer to check if the respective url exists in the database.
+
+So here are the scenarios we should test for:
+
+- The pipe should return the url record when the url exists
+- The pipe should throw a NotFoundException when the url does not exist
+
+In the same directory as the `url-exists.pipe.ts` file, add a new file called `url-exists.pipe.spec.ts` with the following:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { UrlService } from '../url.service'
+import { UrlExistsPipe } from './url-exists.pipe'
+import { NotFoundException } from '@nestjs/common'
+import { generateUrlPayload } from '../__tests__/test-utils'
+
+describe('UrlService', () => {
+  let urlExistsPipe: UrlExistsPipe
+  let urlService: DeepMocked<UrlService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        {
+          provide: UrlService,
+          useValue: createMock<UrlService>(),
+        },
+      ],
+    }).compile()
+
+    urlService = module.get(UrlService)
+    urlExistsPipe = new UrlExistsPipe(urlService)
+  })
+
+  it(`should return the URL when it exists`, async () => {
+    // Arrange
+    const payload = generateUrlPayload({})
+    const url = payload.url
+    urlService.findOne.mockResolvedValueOnce(payload.url === url ? payload : null)
+
+    // Act
+    const result = await urlExistsPipe.transform(url)
+
+    // Assert
+    expect(result).toEqual(payload)
+  })
+
+  it(`should throw NotFoundException when the URL does not exist`, async () => {
+    // Arrange
+    const payload = generateUrlPayload({})
+    const url = `non-existing-url`
+    urlService.findOne.mockResolvedValueOnce(payload.url === url ? payload : null)
+
+    // Act
+    const result = urlExistsPipe.transform(url)
+
+    // Assert
+    await expect(result).rejects.toThrow(NotFoundException)
+  })
+})
+```
+
+## Integration testing
+
+So while unit tests are focused on the end result of a method, integration tests often care about both the end result and the side effects. For example, an integration test for the "create url" functionality would not only verify that the method returns a valid url but also that a new url record has been correctly inserted into the database.
+
+The tricky thing with integration testing and end-to-end testing is the testing configuration and setup. For example, we need to ensure that the database is in a clean state before each test is run.
+
+In the NestJS starter, we set this all up already! In the `/test` directory, have a look in the `setup.ts` file:
+
+```ts
+import { HttpServer, INestApplication } from '@nestjs/common'
+import { Test, TestingModule } from '@nestjs/testing'
+import { AppModule } from '../src/app.module'
+import { CacheService } from '../src/common/cache/cache.service'
+import { DatabaseService } from '../src/database/database.service'
+
+let app: INestApplication
+let server: HttpServer
+let moduleFixture: TestingModule
+let cache: CacheService
+let database: DatabaseService
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+  }).compile()
+
+  app = moduleFixture.createNestApplication()
+  cache = moduleFixture.get<CacheService>(CacheService)
+  database = moduleFixture.get<DatabaseService>(DatabaseService)
+  await app.init()
+  server = app.getHttpServer()
+})
+
+afterEach(async () => {
+  await database.resetDb()
+  await cache.reset()
+})
+
+afterAll(async () => {
+  await app.close()
+})
+
+export { app, server }
+```
+
+This file does the following:
+
+- Before running all the tests, it creates a NestJS runtime with the `Test` class, importing the `AppModule`
+- Resets both the database and cache after each test
+- Exports the `app` (the NestJS runtime) and `server` (the HTTP server) so that we can easily use them in our tests
+
+This setup makes writing integration and e2e tests MUCH easier. Let's see an example of an integration test for the "create url" functionality.
+
+Inside the existing `url` directory, add a new file called `url.service.int-spec.ts` and add the following:
+
+```ts
+import { app } from '../../../test/setup'
+import { DatabaseService } from '../../database/database.service'
+import { UrlService } from './url.service'
+
+describe(`UrlService Integration Tests`, () => {
+  let urlService: UrlService
+  let databaseService: DatabaseService
+
+  beforeAll(async () => {
+    databaseService = app.get(DatabaseService)
+    urlService = app.get(UrlService)
+  })
+
+  describe(`create`, () => {
+    it(`should persist and return the url`, async () => {
+      const payload = {
+        title: `My special link`,
+        redirect: `https://tomray.dev`,
+      }
+
+      const url = await urlService.create(payload)
+      const persistedUrl = await databaseService.url.findUnique({
+        where: {
+          url: url.url,
+        },
+      })
+
+      expect(url).toEqual(persistedUrl)
+    })
+  })
+})
+```
+
+Here's what's happening here:
+
+- We're using the `beforeAll` hook to get the `DatabaseService` and `UrlService` from the `app` (from the `setup.ts` file) so we can use them in the tests
+- We're writing a test that calls the `create()` method on the `UrlService` and then checks that the url record has been correctly persisted in the database by using the `DatabaseService` to query the database
+
+This test runs against a real database. This is because we're using the real dependencies from the `app` (from the `setup.ts` file) which is spun up using a dedicated environment. Go back to the NestJS Starter repo if you'd like to familiarise yourself with this setup!
+
+Let's now add the tests for the `findAll` method. Here's the scenarios we'd like to test:
+
+- The method should return an array of urls stored in the database in the `data` property
+- The method should return an empty array when no urls exist in the database
+- The method should correctly indicate the first page
+- The method should correctly indicate the middle page
+- The method should correctly indicate the last page
+
+```ts
+// ...
+describe(`findAll`, () => {
+  it(`should return empty array when no urls exist in database`, async () => {
+    const response = await urlService.findAll({})
+
+    expect(response.data).toEqual([])
+  })
+
+  it(`should return array of persisted urls`, async () => {
+    const mockedUrlsPayload = createManyUrls()
+    await databaseService.url.createMany({
+      data: mockedUrlsPayload,
+    })
+    const urls = await databaseService.url.findMany({})
+
+    const response = await urlService.findAll({})
+
+    expect(response.data).toEqual(urls)
+  })
+
+  it(`should paginate results and show 1st page`, async () => {
+    const mockedUrlsPayload = createManyUrls()
+    await databaseService.url.createMany({
+      data: mockedUrlsPayload,
+    })
+    const totalCount = await databaseService.url.count()
+    const limit = 1
+    const page = 1
+
+    const response = await urlService.findAll({ page, limit })
+
+    expect(response.meta).toEqual({
+      totalCount,
+      currentPage: page,
+      perPage: limit,
+      totalPages: 3,
+      hasNextPage: true,
+      hasPreviousPage: false,
+    })
+  })
+
+  it(`should paginate results and show middle page`, async () => {
+    const mockedUrlsPayload = createManyUrls()
+    await databaseService.url.createMany({
+      data: mockedUrlsPayload,
+    })
+    const totalCount = await databaseService.url.count()
+    const limit = 1
+    const page = 2
+
+    const response = await urlService.findAll({ page, limit })
+
+    expect(response.meta).toEqual({
+      totalCount,
+      currentPage: page,
+      perPage: limit,
+      totalPages: 3,
+      hasNextPage: true,
+      hasPreviousPage: true,
+    })
+  })
+
+  it(`should paginate results and show last page`, async () => {
+    const mockedUrlsPayload = createManyUrls()
+    await databaseService.url.createMany({
+      data: mockedUrlsPayload,
+    })
+    const totalCount = await databaseService.url.count()
+    const limit = 1
+    const page = 3
+
+    const response = await urlService.findAll({ page, limit })
+
+    expect(response.meta).toEqual({
+      totalCount,
+      currentPage: page,
+      perPage: limit,
+      totalPages: 3,
+      hasNextPage: false,
+      hasPreviousPage: true,
+    })
+  })
+})
+```
+
+In the above tests, I've used a new utility method called `createManyUrls()` (added to the `test-utils.ts` file) which looks like this:
+
+```ts
+export const createManyUrls = () => [
+  {
+    title: `Google`,
+    redirect: `https://google.com`,
+    url: `localhost:3000/1`,
+  },
+  {
+    title: `Facebook`,
+    redirect: `https://facebook.com`,
+    url: `localhost:3000/2`,
+  },
+  {
+    title: `Twitter`,
+    redirect: `https://twitter.com`,
+    url: `localhost:3000/3`,
+  },
+]
+```
+
+In our test setup, the database is cleared before each test, so that's why you'll see in the tests that I'm using the `databaseService` to create the respective records for each test.
+
+Let's continue to test the `findOne` method! We'll want to test the following scenarios:
+
+- The method should return the respective url record when the url exists
+- The method should return null when the url does not exist
+
+```ts
+// ...
+describe(`findOne`, () => {
+  it(`should return null when url does not exist`, async () => {
+    // database is cleared before every test so no urls exist
+    const url = await urlService.findOne(`non-existing-url`)
+
+    expect(url).toBeNull()
+  })
+
+  it(`should return respective url when found`, async () => {
+    const persistedUrl = await databaseService.url.create({
+      data: {
+        title: `My special link`,
+        redirect: `https://tomray.dev`,
+        url: `localhost:3000/123456`,
+      },
+    })
+    const url = await urlService.findOne(`123456`)
+
+    expect(url).toEqual(persistedUrl)
+  })
+})
+```
+
+Next up is the `update` method. Here's the scenarios we want to test:
+
+- The method should return the updated url record
+- The method should update the respective url record in the database
+- The method should throw an error if a url tries to get updated that doesn't exist
+
+```ts
+describe(`update`, () => {
+  it(`should update and return respective url`, async () => {
+    await databaseService.url.create({
+      data: {
+        id: 1,
+        title: `My special link`,
+        redirect: `https://tomray.dev`,
+        url: `localhost:3000/123456`,
+      },
+    })
+    const url = await urlService.update(1, { title: `Updated title` })
+    const updatedPersistedUrl = await databaseService.url.findUnique({
+      where: { id: 1 },
+    })
+
+    expect(url).toEqual(updatedPersistedUrl)
+  })
+
+  it(`should throw error when url does not exist`, async () => {
+    const updateUrl = urlService.update(1, { title: `Updated title` })
+
+    await expect(updateUrl).rejects.toThrowError()
+  })
+})
+```
+
+In theory, the `should throw error when url does not exist` should not happen as we have a validation layer in the `UrlExistsPipe` which should throw an error if the url does not exist. But it's good to have this test in place incase this method is used without the protection of the `UrlExistsPipe`.
+
+Finally, let's test the `remove` method. Here's the scenarios we want to test:
+
+- The method should return the removed url record
+- The method should remove the respective url record from the database
+- The method should throw an error if a url tries to get removed that doesn't exist
+
+```ts
+// ...
+describe(`remove`, () => {
+  it(`should remove and return respective url`, async () => {
+    const persistedUrl = await databaseService.url.create({
+      data: {
+        id: 1,
+        title: `My special link`,
+        redirect: `https://tomray.dev`,
+        url: `localhost:3000/123456`,
+      },
+    })
+    const url = await urlService.remove(1)
+    const removedPersistedUrl = await databaseService.url.findUnique({
+      where: { id: 1 },
+    })
+
+    expect(url).toEqual(persistedUrl)
+    expect(removedPersistedUrl).toBeNull()
+  })
+
+  it(`should throw error when url does not exist`, async () => {
+    const removeUrl = urlService.remove(1)
+
+    await expect(removeUrl).rejects.toThrowError()
+  })
+})
+```
+
+Nice work! That's our integration tests done.
+
 ## API key authentication
 
+Before moving onto E2E testing, let's add an authentication layer to the application.
+
+As mentioned at the start of this tutorial, this project is an internal tool for a startup to manage short URLs. So we want to make sure that only authenticated users can access the API.
+
+We're going to use API key authentication. This means that each request to the API will need to include an API key in the request headers. If the API key is not present or is invalid, the request will be rejected.
+
+To implement this, we'll use [NestJS Guards](https://docs.nestjs.com/guards).
+
+In NestJS, a guard is a class with a single responsibility—determining whether a given request is allowed to proceed to its route handler or not.
+
 ## E2E testing
+
+Let's now add some end-to-end tests.
+
+With respect to testing, so far we've done:
+
+- some unit tests for each `UrlService` method, mocking the dependencies.
+- some integration tests for the `UrlService` which tests the end result of the service methods and also the side effects (i.e. the database).
+
+So what's left to test? Well, we haven't tested the API endpoints. We've tested the service methods but we haven't tested the API endpoints that call those service methods.
+
+This is where end-to-end testing comes in.
+
+End to end tests are also useful for making sure the validation layers are working correctly. We have a `UrlExistsPipe` as well as some DTOs, so it's good to test that these are working correctly.
+
+☝️ You might be thinking - if we add unit tests to the `UrlController`, won't that cover the same tests as the end-to-end tests? Well, the controller methods won't have access to the validation layers, so it's good to have end-to-end tests to test the validation layers. Also, the controller methods just call the respective service methods (which we've already added tests for).
+
+With the e2e tests, we want to test the HTTP response of the API endpoints. We want to test that the endpoints return the correct status code and response body. We're not going to data is correctly persisted in the database or the service methods logic as we've already done that in the integration tests and unit tests.
+
+If you open up the `app.e2e-spec.ts` file in the `/test` directory, you'll see a test that's included in the starter repo:
+
+```ts
+import * as request from 'supertest'
+import { server } from './setup'
+
+describe('AppController (e2e)', () => {
+  it('/ (GET)', () => {
+    return request(server).get('/').expect(200).expect({ data: 'Hello World!' })
+  })
+})
+```
+
+Let's add a new `describe` block for the `UrlController` and add some tests for the `POST /url` endpoint:
+
+```ts
+
+```
 
 ## Deployment
 
 <!-- TODO: use Prisma generated types in DTOs and controllers -->
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
-
-```
