@@ -1,0 +1,1062 @@
+---
+title: 'The NestJS Lifecycle'
+h1: The NestJS Lifecycle
+date: '2023-07-23'
+lastmod: '2023-07-23'
+draft: false
+summary: The NestJS Lifecycle
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: false
+---
+
+There are many NestJS tools at your disposal when building an application, specifically:
+
+- Decorators
+- Middleware
+- Guards
+- Interceptors
+- Pipes
+- Exception Filters
+
+In this project, we're going to explore the purpose of these tools, how they fit together and the order of their execution in the NestJS lifecycle.
+
+With this understanding, you'll have an excellent foundation for building NestJS applications for the projects ahead.
+
+Spin up a new project and we can get started:
+
+```bash
+npx nest new nestjs-lifecycle --package-manager=pnpm --strict
+```
+
+Let's first dive into the NestJS Lifecycle:
+
+## The NestJS Lifecycle
+
+The request lifecycle in NestJS provides a structured and modular way to handle incoming client requests and produce corresponding responses.
+
+It offers a series of extensible points where developers can add custom logic to modify or act upon the request and response objects, enforce security constraints, transform data, and handle exceptions.
+
+Here's the order of the lifecycle steps:
+
+1. **Request comes in:** The HTTP request is received by the NestJS application.
+2. **Middlewares:** Middlewares are executed. These are functions that can modify the request and response objects or end the request-response cycle.
+3. **Guards**: Guards run after middlewares and before the actual route handler is invoked. They decide whether or not the request can proceed.
+4. **Interceptors - Before Handler**: If the request passes the guards, interceptors come into play. At this stage, interceptors can manipulate the request before it reaches the route handler method.
+5. **Pipes**: Pipes run just before the route handler and are used for validation and transformation of incoming request data.
+6. **Route Handler**: The actual route handler (e.g., the controller method) executes, handling the request and generating a response.
+7. **Interceptors - After Handler**: After the route handler has processed the request, interceptors can again manipulate the response before it's sent back to the client.
+8. **Exception Filters:** If an exception is thrown at any stage of the lifecycle, exception filters catch them and provide a way to handle errors gracefully.
+9. **Response**: Finally, the response is sent back to the client.
+
+While we're focusing on the HTTP protocol, it's worth noting that NestJS is not limited to HTTP. It can be used to build applications that use other protocols, such as gRPC, WebSockets, and GraphQL. The lifecycle steps are fairly consistent across these protocols but have some variations and differences. We'll be focusing on the HTTP protocol on the projects in this course.
+
+Let's dive into each of these steps in more detail!
+
+### Middleware
+
+Middleware serves as the first point of entry in the request lifecycle and allows developers to execute arbitrary code before the request is processed by the application.
+
+A good example of this is logging the http request to the console.
+
+Let's add an example middleware to our application:
+
+```bash
+nest g mi logger
+```
+
+This will generate a new middleware in the `src/middleware` directory.
+
+```ts
+import { Injectable, NestMiddleware } from '@nestjs/common'
+import { Request, Response, NextFunction } from 'express'
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    console.log(`Middleware: Logging request: ${req.url}`)
+    next()
+  }
+}
+```
+
+To apply this middleware, we can include it in the bootstrap process in `src/main.ts`:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  app.use(LoggerMiddleware)
+  await app.listen(3000)
+}
+```
+
+Spin up your local server with `pnpm dev:start` and make a request to `http://localhost:3000` and you should see the following logged in your console:
+
+```bash
+Middleware: Logging request: /
+```
+
+Nice!
+
+### Guards
+
+Guards are used to protect routes and endpoints from unauthorized access. They can be used to enforce authentication, authorization, and other security constraints.
+
+In the NestJS Lifecycle, they are executed after any middleware.
+
+A good example of a NestJS Guard is checking the incoming request contains a valid API key in the header of the request. Let's add the following guard to our application:
+
+```bash
+nest g gu guard
+```
+
+This will generate a new guard in the `src/guards` directory.
+
+Let's tweak this guard to include a check for a valid API key:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class GuardGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    console.log(`Guard: Checking authentication`)
+    const request = context.switchToHttp().getRequest()
+    const apiKey = request.header('x-api-key')
+    if (apiKey !== 'SECRET') {
+      return false
+    }
+    console.log(`Guard: Passed authentication`)
+    return true
+  }
+}
+```
+
+Worth noting: the above is just a simple example - you'd want to use a more secure method of authentication in a production application (we'll get to that in the projects ahead!).
+
+Let's apply the guard to our application globally for all routes in the main.ts file:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  app.use(LoggerMiddleware)
+  app.useGlobalGuards(GuardGuard)
+  await app.listen(3000)
+}
+```
+
+Make a request to `http://localhost:3000` and you should see the following logged in your console:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+```
+
+Also, you should see that the request fails with a 401 Unauthorized error.
+
+This is because NestJS automatically returns a 401 Unauthorized error when a guard returns false - this is super helpful! It also shows you that NestJS Guards are intended for enforcing authentication and authorization.
+
+Update your request to include the `x-api-key` header with the value `SECRET` and you should see the following logged in your console:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+Guard: Passed authentication
+```
+
+Nice!
+
+### Interceptors - Before Handler
+
+If the request passes the guards, interceptors come into play. At this stage, interceptors can manipulate the request before it reaches the route handler method.
+
+For example, if your server is receiving request from a browser, it will include a `user-agent` header. It comes in this format:
+
+```bash
+Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0
+```
+
+You could use an interceptor to check for this header and transform the request to include a `browser` property on the request object.
+
+You'll then have access this in your route handler method. Let's implement this now!
+
+```bash
+nest g in browser
+```
+
+This will generate a new interceptor in the `src/interceptors` directory.
+
+Let's tweak this interceptor to include a check for the `user-agent` header and add a `browser` property to the request object:
+
+```ts
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class BrowserInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    console.log(`Interceptor - before handler: manipulate request`)
+    const request = context.switchToHttp().getRequest()
+    const userAgent = request.header(`user-agent`)
+    request.browser = userAgent.split(` `)[0] || `Unknown`
+    return next.handle()
+  }
+}
+```
+
+Let's apply the interceptor to our application globally for all routes in the main.ts file:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  app.use(LoggerMiddleware)
+  app.useGlobalGuards(GuardGuard)
+  app.useGlobalInterceptors(BrowserInterceptor)
+  await app.listen(3000)
+}
+```
+
+You'll now have access to the `browser` property on the request object in your route handler method. For example:
+
+```ts
+import { Controller, Get, Req } from '@nestjs/common'
+import { AppService } from './app.service'
+import { Request } from 'express'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  async getHello(@Req() request: Request) {
+    console.log(`RouteHandler - get browser from request: ${request.browser}`)
+    return await this.appService.getHello()
+  }
+}
+```
+
+Make a request to `http://localhost:3000` and you should see the following logged in your console:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+Guard: Passed authentication
+Interceptor - before handler: manipulate request
+RouteHandler - get browser from request: Chrome
+```
+
+### Pipes
+
+Pipes run just before the route handler and are used for validation and transformation of incoming request data.
+
+For example, imagine we have a GET request that accepts a `name` query parameter and we want to:
+
+- Validation: ensure that the name query param exists and it's a string
+- Transformation: transform to uppercase and remove any whitespace
+
+Let's implement this now!
+
+```bash
+nest g pipe name
+```
+
+This will generate a new pipe in the `src/pipes` directory.
+
+Let's tweak this pipe to include the validation and transformation logic:
+
+```ts
+import { ArgumentMetadata, BadRequestException, Injectable, PipeTransform } from '@nestjs/common'
+
+@Injectable()
+export class NamePipe implements PipeTransform {
+  transform(value: any, metadata: ArgumentMetadata): string {
+    console.log(`Pipe: pre validation and transformation`)
+    if (!value || typeof value !== `string`) {
+      throw new BadRequestException(`Name is required`)
+    }
+    console.log(`Pipe: post validation and transformation - ${value}`)
+    return value.name.toUpperCase().trim()
+  }
+}
+```
+
+Next, let's apply this custom pipe to one of our routes. For demonstration purposes, let's add to the `AppController` we worked on earlier:
+
+```ts
+import { Controller, Get, Req } from '@nestjs/common'
+import { AppService } from './app.service'
+import { Request } from 'express'
+import { NamePipe } from './pipes/name.pipe'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  async getHello(@Req() request: Request, @Query(`name`, NamePipe) name: string) {
+    console.log(`RouteHandler - get browser from request: ${request.browser}`)
+    return await this.appService.getHello()
+  }
+}
+```
+
+You'll notice I didn't apply this as global middleware. That's because I only want to apply this pipe to a single route, not applied globally to all routes in the application.
+
+Make a request to `http://localhost:3000?name=tom` and you should see the following logged in your console:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+Guard: Passed authentication
+Interceptor - before handler: manipulate request
+Pipe: pre validation and transformation
+Pipe: post validation and transformation - TOM
+RouteHandler - get browser from request: Chrome
+```
+
+Nice! The logging is nicely illustrating the order of execution in the NestJS lifecycle.
+
+### Route Handler
+
+The next step in the NestJS lifecycle is the route handler. This is the actual route handler (e.g., the controller method) that executes, handling the request and generating a response.
+
+This is where you'll implement your business logic and return a response to the client.
+
+We can already see the route handler in action from our existing example:
+
+```ts
+import { Controller, Get, Req } from '@nestjs/common'
+import { AppService } from './app.service'
+import { Request } from 'express'
+import { NamePipe } from './pipes/name.pipe'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  async getHello(@Req() request: Request, @Query(`name`, NamePipe) name: string) {
+    console.log(`RouteHandler - get browser from request: ${request.browser}`)
+    return await this.appService.getHello()
+  }
+}
+```
+
+The best NestJS developers I've worked with leverage the different tools in the NestJS lifecycle to keep their route handlers as clean as possible, focused on the business logic and returning a response to the client.
+
+Guards and pipes in particular are really useful tools to validate and transform the requests before it even gets to the route handlers.
+
+### Interceptors - After Handler
+
+We're back to intercepors again!
+
+After the route handler has processed the request, interceptors can again manipulate the response before it's sent back to the client.
+
+This is really useful if you need to do some consistent formatting of the response before it's sent back to the client, for example, wrapping any data returned from the response in a `data` object.
+
+Let's implement this now!
+
+```bash
+nest g in response
+```
+
+This will generate a new interceptor in the `src/interceptors` directory.
+
+```ts
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common'
+import { Observable } from 'rxjs'
+import { map } from 'rxjs/operators'
+
+@Injectable()
+export class ResponseInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    console.log(`Interceptor - after handler: manipulate response`)
+
+    return next.handle().pipe(
+      map((data) => ({ data })) // Wrap the response data in a "data" object
+    )
+  }
+}
+```
+
+Now, let's apply this interceptor globally for all routes in the main.ts file:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+import { ResponseInterceptor } from './interceptors/response.interceptor'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  app.use(LoggerMiddleware)
+  app.useGlobalGuards(GuardGuard)
+  app.useGlobalInterceptors(BrowserInterceptor)
+  app.useGlobalInterceptors(ResponseInterceptor) // Apply the ResponseInterceptor
+  await app.listen(3000)
+}
+bootstrap()
+```
+
+With this interceptor applied, any data returned by your route handlers will be wrapped in a data object. This enables you to extend the API response structure easily in the future and provides a consistent format for client applications to rely upon
+
+Make a request to `http://localhost:3000?name=tom`, and you should first see the logs:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+Guard: Passed authentication
+Interceptor - before handler: manipulate request
+Pipe: pre validation and transformation
+Pipe: post validation and transformation - TOM
+RouteHandler - get browser from request: Chrome
+Interceptor - after handler: manipulate response
+```
+
+And then the response returned inside a `data` object:
+
+```json
+{
+  "data": "Hello World!"
+}
+```
+
+### Exception filters
+
+If an exception is thrown at any stage of the lifecycle, exception filters catch them and provide a way to handle errors gracefully.
+
+They allow you to implement a centralized error-handling mechanism, which can set the appropriate response codes and format error messages consistently.
+
+NestJS has a built-in exception filter that handles exceptions thrown by the application. It returns a 500 Internal Server Error response by default, but throws the respective HTTP exception if a [built-in HTTP exception](https://docs.nestjs.com/exception-filters#built-in-http-exceptions) is thrown.
+
+Before creating our own exception filter, let's first test the one Nest provides out of the box.
+
+As mentioned above, the exception filter catches any errors thrown at any point in the lifecycle. So let's throw an error in the Guard we implemented above to test out the built-in exception filter.
+
+```ts:
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class GuardGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    console.log(`Guard: Checking authentication`)
+    throw new Error(`Guard: Error thrown`) // <- Add this line
+    const request = context.switchToHttp().getRequest()
+    const apiKey = request.header('x-api-key')
+    if (apiKey !== 'SECRET') {
+      return false
+    }
+    console.log(`Guard: Passed authentication`)
+    return true
+  }
+}
+```
+
+Make a request to `http://localhost:3000?name=tom`, and you should first see the logs:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+```
+
+And then the following response:
+
+```json
+{
+  "statusCode": 500,
+  "message": "Internal server error"
+}
+```
+
+So the built-in NestJS exception filter automatically catches the error thrown in the guard and returns a 500 Internal Server Error response. Any non built-in HTTP exceptions that are thrown automatically are returned as a 500 Internal Server Error response.
+
+If you update the error thrown to use a built-in HTTP exception, for example:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class GuardGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    console.log(`Guard: Checking authentication`)
+    throw new UnauthorizedException(`Guard: Error thrown`) // <- Add this line
+    const request = context.switchToHttp().getRequest()
+    const apiKey = request.header('x-api-key')
+    if (apiKey !== 'SECRET') {
+      return false
+    }
+    console.log(`Guard: Passed authentication`)
+    return true
+  }
+}
+```
+
+And run the request again, you'll see the following response:
+
+```json
+{
+  "message": "Guard: Error thrown",
+  "error": "Unauthorized",
+  "statusCode": 401
+}
+```
+
+So using the built-in HTTP exceptions, the built-in NestJS exception filter automatically returns the appropriate response code and message. It also automatically logs the respective error to the console, including the stack trace.
+
+Now, you might be wondering why the error response isn't wrapped in a data object as we've configured in our interceptor. Good catch! Here's why:
+
+**1. Lifecycle Order**
+In the event of an exception, NestJS skips over the "After Handler" section of the lifecycle, which includes our response formatting interceptor. It jumps directly to the exception filter for error handling.
+
+**2. Separation of Concerns**
+Exception filters are solely focused on handling errors, while our interceptors are designed for successful responses. This separation helps maintain clean, single-responsibility code.
+
+The built-in NestJS exception filter is pretty good and for hobby projects, it's probably sufficient. However, for production applications, you'll likely want to implement your own exception filter so you have a bit more control and customization.
+
+For example, in the response you might want to include a timestamp of when the error occurred and the respective request URL that caused the error.
+
+Let's implement this now!
+
+```bash
+nest generate filter exception
+```
+
+This will generate a new filter in the `src/filters` directory.
+
+Let's update this filter to the following:
+
+```ts
+import { ExceptionFilter, Catch, ArgumentsHost } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
+import { Request, Response } from 'express'
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    console.error(`Exception filter: ${exception.message}`, exception.stack)
+    const ctx = host.switchToHttp()
+    const response = ctx.getResponse<Response>()
+    const request = ctx.getRequest<Request>()
+
+    const status = exception instanceof HttpException ? exception.getStatus() : 500
+
+    const message =
+      exception instanceof HttpException ? exception.getResponse() : 'Internal server error'
+
+    const timestamp = new Date().toISOString()
+
+    response.status(status).json({
+      statusCode: status,
+      timestamp: timestamp,
+      path: request.url,
+      message: message,
+    })
+  }
+}
+```
+
+Let's apply this exception filter globally for all routes in the main.ts file:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+import { ResponseInterceptor } from './interceptors/response.interceptor'
+import { AllExceptionsFilter } from './filters/all-exceptions.filter'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  app.use(LoggerMiddleware)
+  app.useGlobalGuards(GuardGuard)
+  app.useGlobalInterceptors(BrowserInterceptor)
+  app.useGlobalInterceptors(ResponseInterceptor)
+  app.useGlobalFilters(AllExceptionsFilter) // Apply the AllExceptionsFilter
+  await app.listen(3000)
+}
+bootstrap()
+```
+
+Nice work!
+
+Remove the error we added to the Guard earlier and make a request to `http://localhost:3000?name=tom`, and you should first see the logs:
+
+```bash
+Middleware: Logging request: /
+Guard: Checking authentication
+Guard: Passed authentication
+Interceptor - before handler: manipulate request
+Pipe: pre validation and transformation
+Pipe: post validation and transformation - TOM
+RouteHandler - get browser from request: Chrome
+Interceptor - after handler: manipulate response
+```
+
+To test out the exception filter, you could remove the `name` query param from the request, which would cause the pipe to throw an error. Or you could remove the `x-api-key` header from the request, which would cause the guard to throw an error.
+
+### A note on dependency injection
+
+Dependency injection is a huge part of NestJS, and you'll often want to inject dependencies into your middleware, guards, interceptors, pipes, and exception filters.
+
+For example, let's update the LoggerMiddleware we built earlier to inject a logger service instead of using `console.log()`:
+
+```ts
+import { Injectable, NestMiddleware } from '@nestjs/common'
+import { Request, Response, NextFunction } from 'express'
+import { LoggerService } from './logger.service'
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  constructor(private readonly loggerService: LoggerService) {}
+
+  use(req: Request, res: Response, next: NextFunction) {
+    this.loggerService.log(`Middleware: Logging request: ${req.url}`)
+    next()
+  }
+}
+```
+
+The logger is injected into the middleware via the constructor. This is a common pattern you'll see throughout NestJS.
+
+In our current setup, however, dependency injection won't be available in any of the the lifecycle elements: middleware, guards, interceptors, and filters. This is because they've been defined in the `main.ts` file.
+
+While this method is convenient for setting these elements globally, it has a limitation: these elements won't have access to NestJS's Dependency Injection (DI) system.
+
+Here's why:
+
+In NestJS, the DI container handles the lifecycle of all the providers, meaning it's responsible for their instantiation and destruction. When we define our guards, interceptors, and filters in main.ts, they are not part of this DI container. As a result, we cannot inject any other service or provider into them.
+
+So, how do we solve this problem if we need to access DI features in these elements? There are alternative ways to apply these elements globally while still retaining access to the DI system:
+
+For Guards and Interceptors: Use the APP_GUARD and APP_INTERCEPTOR tokens.
+For Filters: Use the APP_FILTER token.
+For Middleware: You'll need to define a configuration class implementing the NestModule interface.
+
+By using these approaches, your elements can have full access to other providers and services, thanks to the DI system.
+
+Let's update our setup by first removing the global middleware, guards, interceptors, and filters from the main.ts file:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+import { ResponseInterceptor } from './interceptors/response.interceptor'
+import { AllExceptionsFilter } from './filters/all-exceptions.filter'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule)
+  // app.use(LoggerMiddleware)
+  // app.useGlobalGuards(GuardGuard)
+  // app.useGlobalInterceptors(BrowserInterceptor)
+  // app.useGlobalInterceptors(ResponseInterceptor)
+  // app.useGlobalFilters(AllExceptionsFilter)
+  await app.listen(3000)
+}
+bootstrap()
+```
+
+And instead, apply them using the respective tokens in the app.module.ts file:
+
+```ts
+import { Module } from '@nestjs/common'
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+import { ResponseInterceptor } from './interceptors/response.interceptor'
+import { AllExceptionsFilter } from './filters/all-exceptions.filter'
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: GuardGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: BrowserInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+  ],
+})
+export class AppModule {}
+```
+
+Middleware cannot be applied directly within the AppModule using the providers array like guards, interceptors, and filters. Instead, you apply middleware within the configure method of a module that implements the NestModule interface.
+
+Here's how you can include the logger middleware in the AppModule:
+
+```ts
+import { Module, MiddlewareConsumer, NestModule, RequestMethod } from '@nestjs/common'
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
+import { LoggerMiddleware } from './middleware/logger.middleware'
+import { GuardGuard } from './guards/guard.guard'
+import { BrowserInterceptor } from './interceptors/browser.interceptor'
+import { ResponseInterceptor } from './interceptors/response.interceptor'
+import { AllExceptionsFilter } from './filters/all-exceptions.filter'
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: GuardGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: BrowserInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: AllExceptionsFilter,
+    },
+  ],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes({ path: '*', method: RequestMethod.ALL })
+  }
+}
+```
+
+Nice! So now if we want to inject something into our middleware, guards, interceptors, and filters, we can do so via the constructor.
+
+This approach gives you a lot more flexibility and control over your application.
+
+## Decorators
+
+If you hadn't noticed already, NestJS heavily uses TypeScript Classes.
+
+For example the root module of a NestJS application is a TypeScript class called `AppModule`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
+
+@Module({
+  imports: [],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+Controllers in NestJS are also a class:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello()
+  }
+}
+```
+
+And services in NestJS are also a class:
+
+```ts
+import { Injectable } from '@nestjs/common'
+
+@Injectable()
+export class AppService {
+  getHello(): string {
+    return 'Hello World!'
+  }
+}
+```
+
+Not to mention middleware, guards, pipes and filters are also classes - we'll get to more on these later!
+
+TypeScript has a special feature called decorators that allows you to annotate and modify these classes and their members at design time. Decorators are used exclusively in classes and are denoted by the `@` symbol. NestJS uses them extensively throughout the framework!
+
+For example, let's revisit the `AppController` again:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+
+@Controller() // <- Decorator
+export class AppController {
+  // ...
+}
+```
+
+This decorator tells NestJS that this class is a controller. This is how NestJS knows to invoke this class when a request is made to the route defined in this decorator.
+
+And another example, the `Get` decorator:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get() // <- Decorator
+  getHello(): string {
+    return this.appService.getHello()
+  }
+}
+```
+
+This decorator tells NestJS that this method is a route handler for a GET request. This is how NestJS knows to invoke this method when a GET request is made to the route defined in this decorator.
+
+This is all quite conceptual, so let's build our own method decorator to get a better understanding of how they work!
+
+What we'll do is create a decorator called `@LogExecutionTime()` that we can apply to any method in our application. When applied, it will log the execution time of that method (how long it takes the method to run) to the console. It will be used like this:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  @LogExecutionTime() // <- Our custom decorator
+  getHello(): string {
+    return this.appService.getHello()
+  }
+}
+```
+
+First, add a file inside the `/src` directory called `log.decorator.ts` and in that file add the following. Read the comments to understand how the code works!
+
+```ts
+// Decorators in TypeScript are simply functions
+export function LogExecutionTime() {
+  // A decorator function returns another function.
+  // This returned function gets some special arguments automatically from TypeScript when you annotate a method with @LogExecutionTime()
+  return function (
+    target: any, // This is the prototype of the class where the decorator is used
+    propertyKey: string, // This is the name of the method the decorator is applied to (e.g. getHello)
+    descriptor: PropertyDescriptor // This is an object that describes the method (or property) (e.g. the getHello method)
+  ) {
+    // Save a reference to the original method so we don't lose it
+    const originalMethod = descriptor.value
+
+    // Replace the original method with our new version
+    descriptor.value = async function (...args: any[]) {
+      // NOTE: Any code here will run before the original method
+
+      // Record the current time
+      const startTime = Date.now()
+
+      // Call the original method, storing its result so we can return it later
+      const result = await originalMethod.apply(this, args)
+
+      // NOTE: Any code here will run after the original method
+
+      // Record the time after the method has run
+      const endTime = Date.now()
+
+      // Calculate the time taken
+      const timeDiff = endTime - startTime
+
+      // Log the time taken to the console
+      console.log(`Execution time for method ${propertyKey}: ${timeDiff}ms`)
+
+      // Return the result from the original method
+      return result
+    }
+
+    // Return our new "version" of the descriptor object
+    return descriptor
+  }
+}
+```
+
+This shows that you can use decorators to augment the behavior of a method without having to modify the original method itself. This is a powerful feature!
+
+Let's now actually apply this decorator to a method in the controller:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+import { LogExecutionTime } from './log.decorator'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  @LogExecutionTime() // <- Our custom decorator
+  getHello(): string {
+    return this.appService.getHello()
+  }
+}
+```
+
+Spin up your local server with `pnpm dev:start` and make a request to `http://localhost:3000` and you should see the following logged in your console:
+
+```bash
+Execution time for method getHello: 0ms
+```
+
+Nice! Our decorator is working as expected! Let's tweak the service method to add a deliberate delay to see the decorator in action:
+
+```ts
+import { Injectable } from '@nestjs/common'
+
+@Injectable()
+export class AppService {
+  async getHello() {
+    await this.delay(2000)
+    return 'Hello World!'
+  }
+
+  private delay(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms))
+  }
+}
+```
+
+Also make sure you remove the return type `string` from the `getHello()` method in the controller:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+import { LogExecutionTime } from './log.decorator'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  @LogExecutionTime()
+  getHello() {
+    return this.appService.getHello()
+  }
+}
+```
+
+Make a request to `http://localhost:3000` and you should see the following logged in your console:
+
+```bash
+Execution time for method getHello: 2000ms
+```
+
+Nice! Our decorator is working as expected! It might log 2000ms or 1999ms or 2001ms - it's not an exact science, but it's close enough for our purposes.
+
+This is a simple example of a decorator, but it shows the power of decorators and how they can be used to augment the behavior of a method without having to modify the original method itself.
+
+You might be wondering though 🤔 - that decorator we've just implemented seems quite different to the NestJS decorators like `@Controller` and `@Get()`.
+
+That's a good observation!
+
+Decorators in TypeScript and by extension in NestJS can be used to modify or add behavior to classes, methods, properties, and parameters. While the @LogExecutionTime examples modifies method behavior, decorators like @Controller and @Get in NestJS are used more for metadata reflection and are part of the framework's routing mechanism.
+
+Here's a simplified breakdown:
+
+**Custom Decorators like @LogExecutionTime**
+When you use a decorator like @LogExecutionTime, you're telling the code to modify the behavior of the decorated function or class. In the case of a method decorator, you usually want to add some code that will execute before and/or after the method's own code.
+
+**Framework Decorators like @Controller and @Get**
+When you use @Controller and @Get, you're not necessarily changing the behavior of a class or method. Instead, you're providing metadata that NestJS uses to set up the routing. These decorators help NestJS understand how to handle incoming HTTP requests and direct them to the appropriate controller methods.
+
+Here's a simple example comparing NestJS to an express application.
+
+In express, you might have a route handler like this:
+
+```ts
+const express = require('express')
+const app = express()
+const port = 3000
+
+app.get('/', (req, res) => {
+  res.send('Hello World!')
+})
+
+app.listen(port, () => {
+  console.log(`Example app listening at http://localhost:${port}`)
+})
+```
+
+In Express, you directly tell the app object that when there's a GET request to the path '/', it should run the provided function.
+
+Whereas in NestJS:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+
+@Controller()
+export class AppController {
+  @Get()
+  getHello(): string {
+    return 'Hello World!'
+  }
+}
+```
+
+In NestJS, the @Controller() decorator tells NestJS that the class it decorates should be a controller that handles HTTP requests. The @Get() decorator says that the getHello() method should handle GET requests to the path '/'. However, you don't see this setup happening because it's abstracted away by the framework. This is made possible by the metadata that these decorators attach to the class and method.
+
+In summary, while custom decorators like @LogExecutionTime augment or modify behavior, framework decorators like @Controller and @Get are more about providing metadata that the framework uses for routing and other features. Both are powerful, but they serve different purposes.
+
+Before moving on, here's a brief summary of the main NestJS built-in decorators you'll see and use:
+
+- **@Controller()** - Marks a class as a controller that handles HTTP requests.
+- **@Get(), @Post(), @Put() etc.** - Marks a method in a class as a route handler for the respective HTTP method.
+- **@Param(), @Query(), @Body() etc.** - Marks a method parameter as a request parameter, query parameter, or request body.
+- **@Injectable()** - Marks a class as a provider that can be injected into other classes as a dependency.
+- **@Module()** - Marks a class as a module that can be imported into other modules.
+
+## Conclusion
+
+In this lesson, we covered the NestJS Lifecycle and the different elements that make up the lifecycle.
+
+Next, we covered how to apply middleware, guards, interceptors, and filters globally to your application while still retaining access to the DI system.
+
+Finally, we covered the difference between custom decorators and framework decorators, and how they can be used to modify or add behavior to classes, methods, properties, and parameters.
+
+Great work! 🎉
