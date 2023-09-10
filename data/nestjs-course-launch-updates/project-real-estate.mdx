@@ -1,0 +1,30 @@
+---
+title: 'Real estate listings - NestJS Starter'
+h1: Real estate listings - NestJS Starter
+date: '2023-07-23'
+lastmod: '2023-07-23'
+draft: false
+summary: Real estate listings - NestJS Starter
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: false
+---
+
+Project:
+
+- Ability to import real estate listings from a CSV file.
+- Ability to view a history of imports.
+- Ability to view an import and the status of each listing. Status comes through in real-time
+- Ability to see all listings
+
+Implementation:
+
+- Uploading csv files and validating them
+  -- implement abstracted csv service
+- Defining imports schema and storing record to database
+- Loop over each row and send it to listings queue for processing
+- We have no way of creating listings, so create listings module and service
+- Add a listing producer to send listings to queue
+- In the imports module, use listings producer to send listings to queue
+- Create a consumer to process listings in listings module
+- Bonus: storing respective csv file in S3 bucket
+<!-- - Send file off to queue for processing. Queue can be defined -->
