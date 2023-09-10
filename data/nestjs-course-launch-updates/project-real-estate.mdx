@@ -18,6 +18,17 @@ Project:
 
 Implementation:
 
+Start at the epicenter: listings
+
+- define listings schema
+- add nest listing resource
+- update dto to match schema, including types in database
+  -- go through example of first using indexed access types, but show how implements is better as it achieves the type safety which making the code more readable: more context: https://chat.openai.com/share/f1cd9392-4514-4ef2-9d8d-b9dce72a4797
+- uodate listing service to create record in database
+- handle multiple file uploads for listing images with basic validation
+- register queue and send off images for processing
+- add consumer to send each image to the queue
+
 - Uploading csv files and validating them
   -- implement abstracted csv service
 - Defining imports schema and storing record to database
