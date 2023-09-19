@@ -9,25 +9,409 @@ images: ['/static/images/nestjs-cheat-sheet/banner.png']
 isHiddenFromSearch: false
 ---
 
-Project:
+Please make sure you've installed the pre-requisites before starting!
 
-- Ability to import real estate listings from a CSV file.
-- Ability to view a history of imports.
-- Ability to view an import and the status of each listing. Status comes through in real-time
-- Ability to see all listings
+## Intro
 
-Implementation:
+We're going to build a real-estate API that allows you to create real estate listings with photos. The photos are added to a queue for processing in the background (where we'll upload the file to Google Cloud Storage and store the public image url in the database).
 
-Start at the epicenter: listings
+Here are the topics and features we'll cover in this project:
 
-- define listings schema
-- add nest listing resource
-- update dto to match schema, including types in database
-  -- go through example of first using indexed access types, but show how implements is better as it achieves the type safety which making the code more readable: more context: https://chat.openai.com/share/f1cd9392-4514-4ef2-9d8d-b9dce72a4797
-- uodate listing service to create record in database
+- Handling and validating file uploads
+- Sending files to a queue as jobs
+- Processing the jobs in the background
+- Viewing the queue in a UI
+- Using Google Cloud Storage to store the files
+- Validation with DTOs and pipes
+- Unit testing, integration testing and end-to-end testing
+
+Let's get started by cloning the starter repo:
+
+```bash
+git clone CLONE_URL
+```
+
+Let's dive in!
+
 - handle multiple file uploads for listing images with basic validation
+  -- show using multi-part/form data requires a tweak to the DTO to transform strings to respective numbers
+  -- add a custom pipe to validate number of files - FilesInterceptor argument is possible but the returned error is not clear
 - register queue and send off images for processing
+  -- The forRoot() method is used to register a bull package configuration object that will be used by all queues registered in the application. Applied in CommonModule
+  -- notes on registering queue against same instance as Redis cache
+- implement Bull Arena for queue UI
 - add consumer to send each image to the queue
+- Use GCS to upload the file
+  -- create a bucket (ensure you choose fine-grained access control so you can set public:true)
+  -- create service account with Storage Object Admin
+  -- create GCS service and method to upload file, using @google-cloud/storage package
+- Add schema for listing image and handle in consumer
+
+## Add a listings module
+
+Let's start by adding a listings resource. We'll use the Nest CLI to generate the module, service and controller:
+
+```bash
+npx nest generate resource modules/url
+```
+
+We're going to focus on the creating listings, so you can remove the other methods. You should be left with this in a listings controller:
+
+```ts
+import { Controller, Post, Body } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  create(@Body() createListingDto: CreateListingDto) {
+    return this.listingService.create(createListingDto)
+  }
+}
+```
+
+And this in a listings service:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+
+@Injectable()
+export class ListingService {
+  create(createListingDto: CreateListingDto) {
+    return 'This action adds a new listing'
+  }
+}
+```
+
+You can also remove the default `app.controller.ts`, `app.controller.spec.ts` and `app.service.ts` files as these won't be needed. You'll need to remove the files and there reference in the `app.module.ts`.
+
+Your `AppModule` should look like this:
+
+```ts
+import { Module } from '@nestjs/common'
+import { CoreModule } from './core/core.module'
+import { DatabaseModule } from './database/database.module'
+import { ListingModule } from './modules/listing/listing.module'
+
+@Module({
+  imports: [CoreModule, DatabaseModule, ListingModule],
+  controllers: [],
+  providers: [],
+})
+export class AppModule {}
+```
+
+## Storing listings in the database
+
+We need a way of storing the listings in the database. We'll use Prisma for this which was set up in the starter repo project.
+
+Head into the `schema.prisma` file in the `database` directory and add the following schema:
+
+```prisma
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Listing {
+  id              Int       @id @default(autoincrement())
+  label           String
+  addressLine1    String
+  addressLine2    String?
+  addressCity     String
+  addressZipcode  String
+  addressState    String
+  price           Int
+  bathrooms       Int
+  bedrooms        Int
+  squareMeters    Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+```
+
+The schema is pretty self-explanatory. We have a `Listing` model with a number of fields.
+
+- We're using the `@default` directive to set the `createdAt` field to the current date and time when a record is created.
+- We're using the `@updatedAt` directive to set the `updatedAt` field to the current date and time when a record is updated.
+- All other fields are required except for `addressLine2` which is optional.
+
+To apply these database changes, we need to run our local migration command:
+
+```bash
+pnpm db:migrate:dev
+```
+
+You might be wondering about the listing images. We're going to store the images in Google Cloud Storage and store the public url in the database in a seperate table. We'll cover this later.
+
+So when our `POST /listing` endpoint is used, we want to create a new listing in the database. This means the data received in the request body needs to match the schema above.
+
+When we created the listing resource earlier, it created a DTO for us - `create-listing.dto.ts`. DTOs are for validation and transformation - perfect for this use case.
+
+Let's update this now to manually match the schema:
+
+```ts
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+
+export class CreateListingDto {
+  @IsString()
+  @IsNotEmpty()
+  label: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressLine1: string
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  addressLine2: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressCity: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressZipcode: string
+
+  @IsInt()
+  @Min(0)
+  price: number
+
+  @IsInt()
+  @Min(0)
+  bathrooms: number
+
+  @IsInt()
+  @Min(0)
+  bedrooms: number
+
+  @IsInt()
+  @Min(0)
+  squareMeters: number
+}
+```
+
+Spin up your local server and give the `POST /listing` endpoint a test to make sure it's working as expected. Pass in different values and make sure you get the expected validation errors.
+
+Before we implement the logic to actually store the listing in the database, we can make an optimisation to the DTO we just created.
+
+The purpose of the DTO is to align the data received in the request body with the schema in the database. Right now, we've manually defined the DTO to match the schema. This is fine, but it's a bit repetitive and can be error-prone.
+
+Prisma generates some types from the schema that we can leverage to make this easier.
+
+If you review the database schema again, we actually need the user to provide all fields except for `id`, `createdAt` and `updatedAt`:
+
+```prisma
+// ...
+
+model Listing {
+  id              Int       @id @default(autoincrement()) // generated automatically
+  label           String
+  addressLine1    String
+  addressLine2    String?
+  addressCity     String
+  addressZipcode  String
+  addressState    String
+  price           Int
+  bathrooms       Int
+  bedrooms        Int
+  squareMeters    Int
+  createdAt       DateTime  @default(now()) // generated automatically
+  updatedAt       DateTime  @updatedAt // generated automatically
+}
+```
+
+Inside the `modules/listing` directory, add a new file called `listing.types.ts` and add the following:
+
+```ts
+import { Listing as PrismaListing } from '@prisma/client'
+
+export type CreateListingInput = Omit<PrismaListing, 'id' | 'createdAt' | 'updatedAt'>
+```
+
+This creates a type called `CreateListingInput` which is the same as the `Listing` type generated by Prisma, except it omits the `id`, `createdAt` and `updatedAt` fields.
+
+This is super helpful because now we can use this type in our DTO and we don't have to manually define the DTO to match the schema. We can do this by using `implements` - this allows us to implement an interface or type in a class or DTO.
+
+```ts
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { CreateListingInput } from '../listing.types'
+
+export class CreateListingDto implements CreateListingInput {
+  @IsString()
+  @IsNotEmpty()
+  label: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressLine1: string
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  addressLine2: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressCity: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressZipcode: string
+
+  @IsInt()
+  @Min(0)
+  price: number
+
+  @IsInt()
+  @Min(0)
+  bathrooms: number
+
+  @IsInt()
+  @Min(0)
+  bedrooms: number
+
+  @IsInt()
+  @Min(0)
+  squareMeters: number
+}
+```
+
+You should see a type error in your IDE:
+
+```bash
+Class 'CreateListingDto' incorrectly implements interface 'CreateListingInput'.
+  Property 'addressState' is missing in type 'CreateListingDto' but required in type 'CreateListingInput'.
+```
+
+This is exactly why implementing the type is better than manually defining the DTO. We get type safety and the code is more readable! We forgot to include the `addressState` in the DTO so let's add that now:
+
+```ts
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { CreateListingInput } from '../listing.types'
+
+export class CreateListingDto implements CreateListingInput {
+  @IsString()
+  @IsNotEmpty()
+  label: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressLine1: string
+
+  @IsString()
+  @IsNotEmpty()
+  @IsOptional()
+  addressLine2: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressCity: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressZipcode: string
+
+  @IsString()
+  @IsNotEmpty()
+  addressState: string
+
+  @IsInt()
+  @Min(0)
+  price: number
+
+  @IsInt()
+  @Min(0)
+  bathrooms: number
+
+  @IsInt()
+  @Min(0)
+  bedrooms: number
+
+  @IsInt()
+  @Min(0)
+  squareMeters: number
+}
+```
+
+Let's now update the `listing.service.ts` to use the DTO and create a new listing in the database:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class ListingService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create(createListingDto: CreateListingDto) {
+    return await this.databaseService.listing.create({
+      data: createListingDto,
+    })
+  }
+}
+```
+
+We've injected the `DatabaseService` to create the listing, and passed in the `CreateListingDto` to the `create` method. As it matches the `CreateListingInput` type, we don't need to do any manual mapping!
+
+In order to inject any dependency outside of the current module, we need to ensure we've imported the respective module in the `imports` array of the `@Module` decorator in the `listing.module.ts` file:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+
+@Module({
+  imports: [DatabaseModule],
+  controllers: [ListingController],
+  providers: [ListingService],
+})
+export class ListingModule {}
+```
+
+Nice! Give the method a test and make sure it's working as expected.
+
+You can spin up `pnpm db:studio` to view the database in the Prisma Studio UI and confirm the records been added.
+
+## Attach files to POST /listing request
+
+Lorem
+
+### Understand how the file upload works
+
+The confusion you're experiencing is completely understandable, especially if you're used to working with certain libraries or systems where you pass around actual file objects or streams. The underlying magic here is the combination of the Google Cloud Storage Node.js client library and how Node.js handles file I/O.
+
+Let's break this down:
+
+Node.js File I/O: In Node.js, file operations are typically handled using paths rather than loading entire files into memory. This is efficient, especially for larger files, because it avoids excessive memory consumption. When you do operations on a file in Node.js, you often provide the path to the file, and the operation reads from or writes to that path directly.
+
+Google Cloud Storage Client Library: The GCS Node.js client library is designed to work seamlessly with the Node.js way of handling files. When you call the bucket.upload(filePath) method, under the hood, the library:
+
+Opens a read stream for the file at the given filePath.
+Reads the file in chunks.
+Sends those chunks to GCS until the entire file is uploaded.
+This is abstracted away from the developer for simplicity, but that's roughly what's happening.
+
+Why not the file itself?: It's common in web development (especially on the frontend or with certain backend frameworks) to deal with file objects, especially when users upload files via a web interface. However, in a server environment and especially when dealing with file storage systems or databases, it's often more efficient to work with paths or streams. Loading an entire large file into memory can be resource-intensive and slow.
+
+File Paths are Versatile: By accepting a file path, the method allows for a range of use cases. You can pass in the path to a file that's just been uploaded by a user, a path to a file generated by your application, or even a path to a static file that's part of your application.
+
+In summary, the approach used in the provided code is idiomatic for Node.js and is designed for efficiency and flexibility. The GCS library does the heavy lifting of streaming the file from disk and uploading it in chunks to Google Cloud Storage.
 
 - Uploading csv files and validating them
   -- implement abstracted csv service
@@ -37,5 +421,6 @@ Start at the epicenter: listings
 - Add a listing producer to send listings to queue
 - In the imports module, use listings producer to send listings to queue
 - Create a consumer to process listings in listings module
+
 - Bonus: storing respective csv file in S3 bucket
 <!-- - Send file off to queue for processing. Queue can be defined -->
