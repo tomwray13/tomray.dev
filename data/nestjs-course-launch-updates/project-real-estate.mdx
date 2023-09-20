@@ -20,7 +20,7 @@ Here are the topics and features we'll cover in this project:
 - Handling and validating file uploads
 - Sending files to a queue as jobs
 - Processing the jobs in the background
-- Viewing the queue in a UI
+- Viewing the queue jobs in a UI
 - Using Google Cloud Storage to store the files
 - Validation with DTOs and pipes
 - Unit testing, integration testing and end-to-end testing
@@ -377,7 +377,7 @@ import { ListingController } from './listing.controller'
 import { DatabaseModule } from '../../database/database.module'
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule], // <-- add this
   controllers: [ListingController],
   providers: [ListingService],
 })
@@ -390,7 +390,288 @@ You can spin up `pnpm db:studio` to view the database in the Prisma Studio UI an
 
 ## Attach files to POST /listing request
 
-Lorem
+So, we've set up an endpoint and logic to create a real-estate listing.
+
+Let's update the endpoint to allow the user to upload images for the listing. In the next step we'll add the logic to process the images in the background, but for now we'll just attach the files to the request.
+
+To attach file(s) to an HTTP request, the standard way to do this is by using multipart/form-data as the content type. This content type allows for the transmission of both text and binary data in a single request.
+
+To enable this, we need to use a built-in NestJS interceptor called `FilesInterceptor`. This interceptor allows us to intercept the request and attach files to the request body:
+
+```ts
+import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { FilesInterceptor } from '@nestjs/platform-express'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  @UseInterceptors(FilesInterceptor(`images`))
+  create(
+    @Body() createListingDto: CreateListingDto,
+    @UploadedFiles() files: Express.Multer.File[]
+  ) {
+    console.log(`Uploaded files:`, files)
+    return this.listingService.create(createListingDto)
+  }
+}
+```
+
+Also note that we're using the `@UploadedFiles()` decorator. This is a built-in decorator that allows us to access the files that were attached to the request.
+
+With this setup, try sending a request to the endpoint with a file attached. Instead of sending the request body in JSON or form-urlencoded, you'll need to send it as `multipart/form-data`. If you want to attach files to an HTTP request, you'll need to use `multipart/form-data` as the content type (it's also how the `FilesInterceptor` knows to intercept the request).
+
+You should get a 400 error back!
+
+IMAGE
+
+This is because the `CreateListingDto` expects the `price`, `bathrooms`, `bedrooms` and `squareMeters` fields to be numbers, but they're being sent as strings.
+
+When using `multipart/form-data` as the content type, all the respective fields are sent as strings, which is why we're getting the validation error.
+
+Let's update the DTO to transform the strings to numbers:
+
+```ts
+import { IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { Type } from 'class-transformer'
+import { CreateListingInput } from '../listing.types'
+
+export class CreateListingDto implements CreateListingInput {
+  // ...
+
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  price: number
+
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  bathrooms: number
+
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  bedrooms: number
+
+  @IsInt()
+  @Min(0)
+  @Type(() => Number)
+  squareMeters: number
+}
+```
+
+The `Type` function provided by the `class-transformer` package allows us to transform the string to a number.
+
+Give it a test and the files you attached should now be logged to the console!
+
+Instead of logging the file in the controller, let's include it in the payload for the service method to keep all the logic in the service layer:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class ListingService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create({ data, images }: { data: CreateListingDto; images: Express.Multer.File[] }) {
+    const listing = await this.databaseService.listing.create({
+      data,
+    })
+    for (const image of images) {
+      // do something with image
+      console.log(`image`, image)
+    }
+    return listing
+  }
+}
+```
+
+And then update the controller to pass the files to the service:
+
+```ts
+import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { FilesInterceptor } from '@nestjs/platform-express'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  @UseInterceptors(FilesInterceptor(`images`))
+  create(
+    @Body() createListingDto: CreateListingDto,
+    @UploadedFiles() files: Express.Multer.File[]
+  ) {
+    return this.listingService.create({
+      data: createListingDto,
+      images: files,
+    })
+  }
+}
+```
+
+Nice! Let's now consider some validation we'd like to do on the file uploads:
+
+- We only want to allow images to be uploaded (i.e. png, jpeg and jpg files)
+- The files should have a max size of 1MB
+- We only want to allow a maximum of 10 images to be uploaded
+
+To achieve this validation, we can use NestJS Pipes. In fact, NestJS has some built-in pipes to help with some of the above validation:
+
+```ts
+import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { FilesInterceptor } from '@nestjs/platform-express'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  @UseInterceptors(FilesInterceptor(`images`))
+  create(
+    @Body() createListingDto: CreateListingDto,
+    @UploadedFiles(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: `.(png|jpeg|jpg)` }),
+          new MaxFileSizeValidator({ maxSize: 1024 * 1024 }), // 1MB
+        ],
+      })
+    )
+    files: Express.Multer.File[]
+  ) {
+    return this.listingService.create({
+      data: createListingDto,
+      images: files,
+    })
+  }
+}
+```
+
+Make a few requests and you should see the validation errors as expected. For example, file sizes over 1MB and file types that are not png, jpeg or jpg should return a 400 error.
+
+There's 1 more validation layer we want to add: we only want to allow a maximum of 10 images to be uploaded.
+
+In the NestJS documentation, it mentions the `FilesInterceptor` accepts a number to define the maximum number of images which you can apply like this:
+
+```ts
+import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { FilesInterceptor } from '@nestjs/platform-express'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  @UseInterceptors(FilesInterceptor(`images`, 10)) // <-- add argument for max file count
+  // ....
+}
+```
+
+However, if you make a request exceeding this file count, you'll notice that the validation errors are not very helpful:
+
+```json
+{
+  "message": "Unexpected field",
+  "error": "Bad Request",
+  "statusCode": 400
+}
+```
+
+This isn't very helpful for the client making the request, so let's instead add our own custom pipe to handle this validation.
+
+Other modules might need this pipe in the future, so let's add a directory called `common` inside `src`. This `common` directory will contain any shared code that can be used across the application.
+
+Inside the `common` directory, add a new directory called `pipes` and inside that add a new file called `max-file-count.pipe.ts`:
+
+```ts
+import { PipeTransform, Injectable, BadRequestException } from '@nestjs/common'
+
+@Injectable()
+export class MaxFileCountValidationPipe implements PipeTransform {
+  constructor(private readonly maxFiles: number) {}
+  transform(files: Express.Multer.File[]) {
+    if (files.length > this.maxFiles) {
+      throw new BadRequestException(`Maximum of ${this.maxFiles} file uploads allowed`)
+    }
+    return files
+  }
+}
+```
+
+Let's now remove the argument we added earlier in the `FilesInterceptor` and instead apply this pipe to the `@UploadedFiles()` decorator:
+
+```ts
+import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { FilesInterceptor } from '@nestjs/platform-express'
+
+@Controller('listing')
+export class ListingController {
+  constructor(private readonly listingService: ListingService) {}
+
+  @Post()
+  @UseInterceptors(FilesInterceptor(`images`)) // <-- remove max count argument
+  create(
+    @Body() createListingDto: CreateListingDto,
+    @UploadedFiles(
+      new ParseFilePipe({
+        validators: [
+          new FileTypeValidator({ fileType: `.(png|jpeg|jpg)` }),
+          new MaxFileSizeValidator({ maxSize: 1024 * 1024 }),
+        ],
+      }),
+      new MaxFileCountValidationPipe(10) // <-- add this
+    )
+    files: Express.Multer.File[]
+  ) {
+    return this.listingService.create({
+      data: createListingDto,
+      images: files,
+    })
+  }
+}
+```
+
+With some validation setup on the incoming attached files, let's now dive into the queue set up!
+
+## Set up the Bull Queue
+
+- mention using same instance of Redis for queue and cache
+- include logging of queue errors
+- move queue add method to it's own provider service
+- refactor to use constants for queue names
+
+## Setting up Bull Arena
+
+- remove Bull arena from http logging
+
+## Saving files to disk
+
+- Discuss trade-offs of saving files to disk vs uploading image to job queue
+- Update controller to save files to disk
+- Add custom exception filter
+- Handle failed jobs
+- Handle successful jobs
+
+## Process the job: upload to GCS and store url in database
+
+- validate the job payload
+- upload file to GCS
+- store url in database in new table
 
 ### Understand how the file upload works
 
@@ -421,6 +702,5 @@ In summary, the approach used in the provided code is idiomatic for Node.js and 
 - Add a listing producer to send listings to queue
 - In the imports module, use listings producer to send listings to queue
 - Create a consumer to process listings in listings module
-
 - Bonus: storing respective csv file in S3 bucket
 <!-- - Send file off to queue for processing. Queue can be defined -->
