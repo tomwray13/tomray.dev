@@ -52,7 +52,7 @@ Let's dive in!
 Let's start by adding a listings resource. We'll use the Nest CLI to generate the module, service and controller:
 
 ```bash
-npx nest generate resource modules/url
+npx nest generate resource modules/listing
 ```
 
 We're going to focus on the creating listings, so you can remove the other methods. You should be left with this in a listings controller:
@@ -650,24 +650,401 @@ With some validation setup on the incoming attached files, let's now dive into t
 
 ## Set up the Bull Queue
 
-- mention using same instance of Redis for queue and cache
-- include logging of queue errors
-- move queue add method to it's own provider service
-- refactor to use constants for queue names
+To set up a queue in NestJS we're going to use [Bull](https://github.com/OptimalBits/bull). Bull is a Node.js package that allows you to create and manage queues and is powered by Redis.
+
+Bull is a Node.js package that allows you to create and manage queues and is powered by Redis.
+
+In the NestJS starter repo, we already set up a cache module (which uses Redis), so there is a question around should we use the same Redis instance for the queue or a seperate one.
+
+In many cases, starting with a single Redis instance might be okay during development or in low-traffic scenarios, but as the application scales, moving to separate instances might become necessary. So we're going to stick with a single Redis instance for now.
+
+Before diving in, let's install the relevant Bull packages:
+
+```bash
+pnpm add bull @nestjs/bull
+```
+
+To set up Bull in the project, we need to register a globally available configuration for all queues. This connects to the Redis instance and sets up some default options for all queues.
+
+As this setup is global, we're going to add it to the `CoreModule`.
+
+Let's add a new `Queue` module that's imported to the `CoreModule` by running this command in the terminal:
+
+```bash
+npx nest generate module core/queue
+```
+
+Inside of the `queue.module.ts` file, let's register the global Bull configuration. We'll need to inject the `ConfigService` so we can access the Redis instance credentials:
+
+```ts
+import { Module } from '@nestjs/common'
+import { BullModule } from '@nestjs/bull'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+
+@Module({
+  imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const username = configService.get('redis.username')
+        const password = configService.get('redis.password')
+        return {
+          redis: {
+            host: configService.get('redis.host'),
+            port: configService.get('redis.port'),
+            ...(username && { username }),
+            ...(password && { password }),
+          },
+        }
+      },
+      inject: [ConfigService],
+    }),
+  ],
+})
+export class QueueModule {}
+```
+
+We want to create a queue where we can send jobs to do the following:
+
+- Upload the file to Google Cloud Storage, getting the public image url
+- Store the respective public url in the database.
+
+Let's start by registering a queue dedicated for the listing module.
+
+Inside `listing.module.ts`, register a new queue with name `listing`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+import { BullModule } from '@nestjs/bull'
+
+@Module({
+  imports: [BullModule.registerQueue({ name: `listing` }), DatabaseModule],
+  controllers: [ListingController],
+  providers: [ListingService],
+})
+export class ListingModule {}
+```
+
+We need a way of adding jobs to the listing queue and processing jobs from the listing queue.
+
+Inside the `listing` directory, add a new directory called `queue` and inside that add 2 new files:
+
+1. `listing.producer.ts` - this will be for adding jobs to the queue
+1. `listing.consumer.ts` - this will be for processing jobs from the queue
+
+Let's start with the producer. Inside `listing.producer.ts`, add the following:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { InjectQueue } from '@nestjs/bull'
+import { Queue } from 'bull'
+
+@Injectable()
+export class ListingProducer {
+  constructor(@InjectQueue(`listing`) private listingQueue: Queue) {}
+
+  async createListingImage(payload: string) {
+    return await this.listingQueue.add(`createListingImage`, payload)
+  }
+}
+```
+
+Here's how the @InjectQueue decorator works:
+
+- The decorator accepts a string argument which is the name of the queue we want to inject
+- The decorator injects the queue instance into the class
+- We can then use the queue instance to add jobs to the queue
+
+For now, the payload just passes through a string but we'll tweak this shortly.
+
+And let's add the consumer:
+
+```ts
+import { Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+
+@Processor(`listing`)
+export class ListingConsumer {
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<string>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+}
+```
+
+Let's not forget to register the producer and consumer in the `listing.module.ts` file:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+import { BullModule } from '@nestjs/bull'
+import { ListingProducer } from './queue/listing.producer'
+import { ListingConsumer } from './queue/listing.consumer'
+
+@Module({
+  imports: [BullModule.registerQueue({ name: `listing` }), DatabaseModule],
+  controllers: [ListingController],
+  providers: [ListingService, ListingProducer, ListingConsumer], // <-- add producer and consumer
+})
+export class ListingModule {}
+```
+
+Let's now update the `listing.service.ts` to use the producer to add a job to the queue:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+import { ListingProducer } from './queue/listing.producer'
+
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly listingQueue: ListingProducer
+  ) {}
+
+  async create({ data, images }: { data: CreateListingDto; images: Express.Multer.File[] }) {
+    const listing = await this.databaseService.listing.create({
+      data,
+    })
+    for (const image of images) {
+      // send image to queue
+      await this.listingQueue.createListingImage(image.originalname)
+    }
+    return listing
+  }
+}
+```
+
+Run another HTTP request and you should see the job data logged to the console.
+
+Nice work, you've just set up a queue and added a job to it!
+
+Before getting onto adding the logic for handling the file uploads, there are a couple of things we can do to improve our current queue set up:
+
+1. The queue name `listing` is hard-coded in multiple places. We should use a constant instead so we can easily change the name in one place.
+2. What happens if the job consumer throws an error? Let's setup some logging to automatically log all errors that happen in the queue.
+
+Let's start with the queue name. Inside the `core/queue` directory, add a new file called `queue.constants.ts` with the following:
+
+```ts
+export const LISTING_QUEUE = `listing`
+```
+
+Now use this constant in the `listing.module.ts`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+import { BullModule } from '@nestjs/bull'
+import { ListingProducer } from './queue/listing.producer'
+import { ListingConsumer } from './queue/listing.consumer'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+
+@Module({
+  imports: [BullModule.registerQueue({ name: LISTING_QUEUE }), DatabaseModule],
+  controllers: [ListingController],
+  providers: [ListingService, ListingProducer, ListingConsumer], // <-- add producer and consumer
+})
+export class ListingModule {}
+```
+
+In the producer:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { InjectQueue } from '@nestjs/bull'
+import { Queue } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+
+@Injectable()
+export class ListingProducer {
+  constructor(@InjectQueue(LISTING_QUEUE) private listingQueue: Queue) {}
+
+  async createListingImage(payload: string) {
+    return await this.listingQueue.add(`createListingImage`, payload)
+  }
+}
+```
+
+And the consumer:
+
+```ts
+import { Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer {
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<string>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+}
+```
+
+In regards to setting up automatic logs for errors that happen when jobs are processed, we can leverage Bull events.
+
+The NestJS bull package has quite a few events included out the box, like `@OnQueueFailed()` which is fired when a job fails to be processed and `@OnQueueCompleted` which is fired when a job is successfully processed.
+
+Let's inject our custom logger and use the `@OnQueueFailed()` event to log any errors that happen when processing a job.
+
+```ts
+import { Process, Processor, OnQueueFailed } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { Logger } from '../../core/logger/logger.service'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer {
+  constructor(private readonly logger: Logger) {}
+
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<string>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+
+  @OnQueueFailed()
+  async onError(job: Job<string>, error: any) {
+    this.logger.error(
+      `Failed job ${job.id} of type ${job.name}: ${error.message}`,
+      error.stack,
+      `Queue`,
+      job.data
+    )
+  }
+}
+```
+
+If you'd like to give it a test, throw an error in the `createListingImage` method and you should see the error logged to the console.
+
+This works well, but as soon we add more jobs and/or queues, we'll have to repeat this code for each queue.
+
+A nicer way of handling this is by creating a BaseConsumer class that all other consumers can extend from. This way, we can define the error handling logic in one place and all other consumers will inherit it.
+
+In the `core/queue` directory, add a new file called `base.consumer.ts`:
+
+```ts
+import { OnQueueFailed } from '@nestjs/bull'
+import { Job } from 'bull'
+import { Logger } from '../logger/logger.service'
+
+export abstract class BaseConsumer {
+  constructor(private readonly logger: Logger) {}
+  @OnQueueFailed()
+  onError(job: Job<any>, error: any) {
+    this.logger.error(
+      `Failed job ${job.id} of type ${job.name}: ${error.message}`,
+      error.stack,
+      `Queue`,
+      job.data
+    )
+  }
+}
+```
+
+Note that I've used `abstract` here. This is because we don't ever want to instantiate this class directly, we just want to extend from it.
+
+Let's now update the `listing.consumer.ts` to extend from this class:
+
+```ts
+import { Process, Processor, OnQueueFailed } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { Logger } from '../../core/logger/logger.service'
+import { BaseConsumer } from '../../core/queue/base.consumer'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(logger: Logger) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<string>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+
+  // @OnQueueFailed()
+  // async onError(job: Job<string>, error: any) {
+  //   this.logger.error(
+  //     `Failed job ${job.id} of type ${job.name}: ${error.message}`,
+  //     error.stack,
+  //     `Queue`,
+  //     job.data
+  //   )
+  // }
+}
+```
+
+Note I've had to remove the `private readonly` from the constructor argument as this is not allowed when using `super` in a constructor.
+
+Nice! Our error logging inside jobs is not centralised.
+
+On a side note, there might be a scenario where you want to add some logic to the `onError` method in a specific consumer. In this case, you can override the `onError` method in the consumer and add the logic there like this:
+
+```ts
+import { Process, Processor, OnQueueFailed } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { Logger } from '../../core/logger/logger.service'
+import { BaseConsumer } from '../../core/queue/base.consumer'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(logger: Logger) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<string>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+
+  @OnQueueFailed()
+  async onError(job: Job<UploadListingImageDto>, error: any) {
+    super.onError(job, error)
+    // do something else here
+  }
+}
+```
+
+Great work! We've setup a queue and added a job to it. In the next step, we'll see how we can visualize this queue using Bull Arena.
 
 ## Setting up Bull Arena
 
 - remove Bull arena from http logging
 
-## Saving files to disk
+## Using file paths from disk with uploading to Google Cloud Storage
 
 - Discuss trade-offs of saving files to disk vs uploading image to job queue
 - Update controller to save files to disk
 - Add custom exception filter
 - Handle failed jobs
 - Handle successful jobs
+- Service for GCS
 
 ## Process the job: upload to GCS and store url in database
+
+In NestJS, it's typically best practice to handle your validation in the controller layer and then pass the validated data to the service layer to handle the business logic.
+
+It's also best practice to do something similar when processing jobs:
+
+1. In the job, validate the incoming payload
+2. Pass the validated payload to the service layer to handle the business logic
 
 - validate the job payload
 - upload file to GCS
@@ -704,3 +1081,7 @@ In summary, the approach used in the provided code is idiomatic for Node.js and 
 - Create a consumer to process listings in listings module
 - Bonus: storing respective csv file in S3 bucket
 <!-- - Send file off to queue for processing. Queue can be defined -->
+
+```
+
+```
