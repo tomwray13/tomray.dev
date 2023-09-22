@@ -49,8 +49,8 @@ export default function NestJSCourse() {
           <h2>Who is making this course?</h2>
           <p>
             👋 Hi! I'm <Link href="/about">Tom</Link>, a proud JS/TS dev from Brighton, UK. Through
-            my blog, I've helped over 20,000 NestJS developers learn through build cool projects and
-            practical tutorials.
+            my blog, I've helped over 20,000 NestJS developers learn through building cool projects
+            and practical tutorials.
           </p>
 
           <h2>Get the free course</h2>
