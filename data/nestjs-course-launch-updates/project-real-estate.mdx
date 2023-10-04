@@ -1151,6 +1151,14 @@ import { BullAdapter } from '@bull-board/api/bullAdapter'
 export class ListingModule {}
 ```
 
+Worth noting: The `BullAdaptor` didn't automatically handle the import in my IDE, I had to manually add it:
+
+```ts
+// ...
+import { BullAdapter } from '@bull-board/api/bullAdapter'
+// ...
+```
+
 And that's it! Spin up your local server and go to `/queues` in your browser. You'll see the `listing` queue listed there along with the jobs that have been added to it.
 
 An optional step:
