@@ -132,11 +132,13 @@ pnpm add webpack@^5.0.0
 
 With the package installed, we can now use the config module.
 
-We're going to add a `/common` directory and respective module which will be a place where we can add services that can be used across the entire application.
+We're going to add a `/core` directory and respective module which will be a place where we can add services that can be used across the entire application.
 
-After adding the `/common` directory, add a new file called `common.module.ts` and include the `ConfigModule` along with the `forRoot()` static method:
+You can think of the `/core` directory as a place to add services that are used across the entire application, such as a logger service, a config service, a cache service, etc.
 
-```ts:common.module.ts
+After adding the `/core` directory, add a new file called `core.module.ts` and include the `ConfigModule` along with the `forRoot()` static method:
+
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
@@ -145,24 +147,24 @@ import { ConfigModule } from '@nestjs/config';
   providers: [],
   exports: [],
 })
-export class CommonModule {}
+export class CoreModule {}
 ```
 
 Also make sure you import this module into the main `app.module.ts` module:
 
 ```ts:app.module.ts
 import { Module } from '@nestjs/common';
-import { CommonModule } from './common/common.module';
+import { CoreModule } from './core/core.module';
 
 @Module({
-  imports: [CommonModule],
+  imports: [CoreModule],
   // ...
 })
 export class AppModule {}
 
 ```
 
-**Please note:** As you add more imports to the `CommonModule`, always keep the `ConfigModule` as the first import. Also make sure the `CommonModule` is the first import inside the `AppModule`. Otherwise the other imports won't have access to the environment variables.
+**Please note:** As you add more imports to the `CoreModule`, always keep the `ConfigModule` as the first import. Also make sure the `CoreModule` is the first import inside the `AppModule`. Otherwise the other imports won't have access to the environment variables.
 
 Assuming you're using the default `.env` file in your project, you'll now have access to your environment variables by using `process.env` anywhere in your NestJS app. While this approach works, it doesn't offer any type safety.
 
@@ -194,7 +196,7 @@ import config from './config/configuration';
   providers: [],
   exports: [],
 })
-export class CommonModule {}
+export class CoreModule {}
 
 ```
 
@@ -224,7 +226,7 @@ import config from './config/configuration';
   providers: [],
   exports: [],
 })
-export class CommonModule {}
+export class CoreModule {}
 
 ```
 
@@ -236,7 +238,7 @@ By wrapping all HTTP responses in a standard structure, you make it easier for c
 
 This can be achieved in NestJS using an interceptor. Interceptors in NestJS allow you to execute logic before or after the main handler (such as a controller method) is called, making them a perfect fit for this use case.
 
-Inside the `/common` directory, add a new directory called `/interceptors` and create a new file called `transform-response.interceptor.ts`:
+Inside the `/core` directory, add a new directory called `/interceptors` and create a new file called `transform-response.interceptor.ts`:
 
 ```ts:transform-response.interceptor.ts
 import { Injectable, NestInterceptor, ExecutionContext, CallHandler } from '@nestjs/common';
@@ -297,14 +299,14 @@ export class TransformResponseInterceptor implements NestInterceptor {
 }
 ```
 
-To implement this interceptor, inside your `common.module.ts` file, add the following:
+To implement this interceptor, inside your `core.module.ts` file, add the following:
 
 ```typescript:app.module.ts
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import config from './config/configuration';
-import { TransformResponseInterceptor } from '../common/interceptors/transform-response.interceptor';
+import { TransformResponseInterceptor } from '../core/interceptors/transform-response.interceptor';
 
 @Module({
   imports: [
@@ -321,7 +323,7 @@ import { TransformResponseInterceptor } from '../common/interceptors/transform-r
   ],
   exports: [],
 })
-export class CommonModule {}
+export class CoreModule {}
 
 ```
 
@@ -508,7 +510,7 @@ Let's now build a dedicated logging module that supports JSON. We're going to us
 pnpm add winston
 ```
 
-Inside the `/common` directory, create a new directory called `logger` and add a file called `logger.service.ts`
+Inside the `/core` directory, create a new directory called `logger` and add a file called `logger.service.ts`
 
 ```ts:logger.service.ts
 import { Injectable, LoggerService } from '@nestjs/common';
@@ -573,16 +575,16 @@ export class Logger implements LoggerService {
 
 You'll notice I've included a `meta` argument in each log which allows you to pass in any extra data to each log if you want to give additional context.
 
-Make sure you import the logger service into the `common.module.ts` file and add it to the `providers` array:
+Make sure you import the logger service into the `core.module.ts` file and add it to the `providers` array:
 
-```ts:common.module.ts
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import config from '../config';
 import { TransformResponseInterceptor } from './interceptors/transform-response.interceptor';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { Logger } from './logger/logger.service';
-import { Global } from '@nestjs/common/decorators';
+import { Global } from '@nestjs/core/decorators';
 
 @Global() // <-- Add this decorator
 @Module({
@@ -593,7 +595,7 @@ import { Global } from '@nestjs/common/decorators';
   ],
   exports: [Logger], // <-- Add as export
 })
-export class CommonModule {}
+export class CoreModule {}
 
 
 ```
@@ -625,7 +627,7 @@ Here's an example of how to do it in the `app.service.ts` file:
 
 ```ts:app.service.ts
 import { Injectable } from '@nestjs/common';
-import { Logger } from '../common/logger/logger.service';
+import { Logger } from '../core/logger/logger.service';
 
 @Injectable()
 export class AppService {
@@ -747,9 +749,9 @@ This code is basically just logging the request and response data for each HTTP 
 
 Now we need to register this middleware in our application, otherwise it won't work.
 
-As we're using the `CommonModule` as a place to define globally applied config and services, let's add the logging middleware there:
+As we're using the `CoreModule` as a place to define globally applied config and services, let's add the logging middleware there:
 
-```ts:common.module.ts
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import config from '../config';
@@ -770,7 +772,7 @@ import { RequestMethod } from '@nestjs/common/enums';
   ],
   exports: [Logger],
 })
-export class CommonModule {
+export class CoreModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(LoggerMiddleware)
@@ -1143,9 +1145,9 @@ Let's start by installing the NestJS caching packages:
 pnpm add @nestjs/cache-manager cache-manager
 ```
 
-We're going to apply the cache set inside the `CommonModule`, so go there and add the `CacheModule`:
+We're going to apply the cache set inside the `CoreModule`, so go there and add the `CacheModule`:
 
-```ts:common.module.ts
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import config from '../config';
@@ -1170,7 +1172,7 @@ import { CacheModule } from '@nestjs/cache-manager';
   ],
   exports: [Logger],
 })
-export class CommonModule {
+export class CoreModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(LoggerMiddleware)
@@ -1218,7 +1220,7 @@ Note how the `REDIS_HOST` and `REDIS_PORT` are the same as what's defined in the
 
 Let's now update the `CacheModule` to use Redis:
 
-```ts:common.module.ts
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import config from '../config';
@@ -1257,7 +1259,7 @@ import * as redisStore from 'cache-manager-redis-store';
   ],
   exports: [Logger],
 })
-export class CommonModule {
+export class CoreModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(LoggerMiddleware)
@@ -1274,7 +1276,7 @@ node_redis: Warning: Redis server does not require a password, but a password wa
 
 This is totally optional but I like to remove this warning by adding the following to the `useFactory` function:
 
-```ts:common.module.ts
+```ts:core.module.ts
 @Module({
   imports: [
     // ...
@@ -1308,7 +1310,7 @@ You can now inject the `CACHE_MANAGER` token into any service or controller to g
 
 However, I prefer to encapsulate the caching logic in a `CacheService` and if you ever need to change the caching strategy or underlying cache implementation, you only have to do it in one place.
 
-Inside the `/common` directory, add a `/cache` directory and inside there add a file called `cache.service.ts`:
+Inside the `/core` directory, add a `/cache` directory and inside there add a file called `cache.service.ts`:
 
 ```ts:cache.service.ts
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -1347,9 +1349,9 @@ The 4 methods allow us to get, set, delete and reset the cache. The reset method
 
 There's also a `onModuleDestroy` method is a built in NestJS lifecycle hook that will be called when the module is destroyed. This will be used to close the Redis connection when the application is shut down. The reason this is required is because [the Redis connection is kept open by default](https://github.com/nestjs/nest/issues/1621) which causes issues when running e2e tests.
 
-Finally, back in the `CommonModule`, add the `CacheService` to the providers and exports:
+Finally, back in the `CoreModule`, add the `CacheService` to the providers and exports:
 
-```ts:common.module.ts
+```ts:core.module.ts
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import config from '../config';
@@ -1394,7 +1396,7 @@ import * as redisStore from 'cache-manager-redis-store';
   ],
   exports: [Logger, CacheService],
 })
-export class CommonModule {
+export class CoreModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(LoggerMiddleware)
@@ -1640,7 +1642,52 @@ The command `dotenv -e env.test --` will load the environment variables from the
 }
 ```
 
-Nice! The next thing we need to do is setup the scripts to start the Docker services before all the tests are run and stop them after all the tests are run.
+Nice! One thing I've noticed with this set up is that if your `.env.test` file is missing some environment variables that are used in the tests, the tests will default to the values in the `.env` file. This is not ideal as it could lead to false positives.
+
+So to make sure that when the `test:e2e` script is run it only uses the environment variables in the `.env.test` file, we can leverage Jest's global setup and teardown hooks.
+
+What we're going to do is:
+
+- When the `test:e2e` script is run, before running any of the tests we'll temporarily rename the `.env` file to `.env.temp`
+- After all the tests have run, we'll rename the `.env.temp` file back to `.env`
+
+In the `/test` directory, add a new file called `global-setup.ts` with the following code:
+
+```ts
+import { existsSync, renameSync } from 'fs'
+
+export default async () => {
+  if (existsSync('.env')) {
+    renameSync('.env', '.env.temp')
+  }
+}
+```
+
+Also in the `/test` directory, add a new file called `global-teardown.ts` with the following code:
+
+```ts
+import { existsSync, renameSync } from 'fs'
+
+export default async () => {
+  if (existsSync('.env.temp')) {
+    renameSync('.env.temp', '.env')
+  }
+}
+```
+
+And in the `jest-e2e.json` config file, add the following:
+
+```json:jest-e2e.json
+{
+  // ...
+  "globalSetup": "<rootDir>/test/global-setup.ts",
+  "globalTeardown": "<rootDir>/test/global-teardown.ts",
+}
+```
+
+This solution isn't perfect, but does the job of ensuring the tests only use the environment variables in the `.env.test` file. If you have a better solution please let me know and I can update this guide!
+
+The next thing we need to do is setup the scripts to start the Docker services before all the tests are run and stop them after all the tests are run.
 
 Here's the flow of how we want the scripts to execute:
 
@@ -1653,8 +1700,8 @@ Let's start by adding a couple of Docker scripts (to solve point 1 and 4) for ha
 ```json:package.json
 {
   "scripts": {
-    "docker:start:test": "docker-compose -f docker-compose-test.yml up -d",
-    "docker:down:test": "docker-compose -f docker-compose-test.yml down"
+    "docker:start:test": "dotenv -e .env.test -- docker-compose -f docker-compose-test.yml up -d",
+    "docker:down:test": "dotenv -e .env.test -- docker-compose -f docker-compose-test.yml down",
   }
 }
 ```
@@ -1804,7 +1851,7 @@ Then add a new file called `setup.ts` and add the following code:
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
-import { CacheService } from '../src/common/cache/cache.service';
+import { CacheService } from '../src/core/cache/cache.service';
 import { DatabaseService } from '../src/database/database.service';
 
 let app: INestApplication;
@@ -1854,7 +1901,7 @@ In the projects ahead, we'll be using the `DatabaseModule` a lot, so for now let
 import { HttpServer, INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
-import { CacheService } from '../src/common/cache/cache.service';
+import { CacheService } from '../src/core/cache/cache.service';
 // import { DatabaseService } from '../src/database/database.service';
 
 let app: INestApplication;
@@ -1925,7 +1972,7 @@ The thing is, in our setup file, we're already creating an app instance and init
 import { HttpServer, INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
-import { CacheService } from '../src/common/cache/cache.service';
+import { CacheService } from '../src/core/cache/cache.service';
 import { DatabaseService } from '../src/database/database.service';
 
 let app: INestApplication;
