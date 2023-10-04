@@ -55,6 +55,8 @@ Let's start by adding a listings resource. We'll use the Nest CLI to generate th
 npx nest generate resource modules/listing
 ```
 
+Use REST API in the options and choose Y for generating CRUD entry points.
+
 We're going to focus on the creating listings, so you can remove the other methods. You should be left with this in a listings controller:
 
 ```ts
@@ -86,6 +88,12 @@ export class ListingService {
   }
 }
 ```
+
+In the `listing` folder you can delete the following files:
+
+`listing.service.spec.ts` - this is the unit testing file, we'll cover this later
+`listing.controller.spec.ts` - this is the testing file for the controller, we'll cover this later in e2e tests
+`entities/` - entities are for TypeORM which we're not using (we use Prisma)
 
 You can also remove the default `app.controller.ts`, `app.controller.spec.ts` and `app.service.ts` files as these won't be needed. You'll need to remove the files and there reference in the `app.module.ts`.
 
@@ -141,6 +149,8 @@ model Listing {
 }
 ```
 
+There will be a `User` model which is included in the starter repo by default - you can delete this model.
+
 The schema is pretty self-explanatory. We have a `Listing` model with a number of fields.
 
 - We're using the `@default` directive to set the `createdAt` field to the current date and time when a record is created.
@@ -152,6 +162,8 @@ To apply these database changes, we need to run our local migration command:
 ```bash
 pnpm db:migrate:dev
 ```
+
+You'll be prompted to name the migration. You can call it "initial migration".
 
 You might be wondering about the listing images. We're going to store the images in Google Cloud Storage and store the public url in the database in a seperate table. We'll cover this later.
 
@@ -204,7 +216,23 @@ export class CreateListingDto {
 }
 ```
 
-Spin up your local server and give the `POST /listing` endpoint a test to make sure it's working as expected. Pass in different values and make sure you get the expected validation errors.
+Spin up your local server and give the `POST /listing` endpoint a test to make sure it's working as expected. You can use this JSON as an example:
+
+```json
+{
+  "label": "Spacious Apartment in Downtown",
+  "addressLine1": "123 Main St",
+  "addressLine2": "Apt 4B",
+  "addressCity": "Springfield",
+  "addressZipcode": "62704",
+  "price": 150000,
+  "bathrooms": 2,
+  "bedrooms": 3,
+  "squareMeters": 120
+}
+```
+
+Pass in different values and make sure you get the expected validation errors.
 
 Before we implement the logic to actually store the listing in the database, we can make an optimisation to the DTO we just created.
 
@@ -396,7 +424,13 @@ Let's update the endpoint to allow the user to upload images for the listing. In
 
 To attach file(s) to an HTTP request, the standard way to do this is by using multipart/form-data as the content type. This content type allows for the transmission of both text and binary data in a single request.
 
-To enable this, we need to use a built-in NestJS interceptor called `FilesInterceptor`. This interceptor allows us to intercept the request and attach files to the request body:
+NestJS recommends installing the @types/multer package so you have better type safety when handle multipart/form-data requests:
+
+```bash
+pnpm add -D @types/multer
+```
+
+To enable sending multipart/form-data, we need to use a built-in NestJS interceptor called `FilesInterceptor`. This interceptor allows us to intercept the request and attach files to the request body:
 
 ```ts
 import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
@@ -426,7 +460,22 @@ With this setup, try sending a request to the endpoint with a file attached. Ins
 
 You should get a 400 error back!
 
-IMAGE
+```json
+{
+  "message": [
+    "price must not be less than 0",
+    "price must be an integer number",
+    "bathrooms must not be less than 0",
+    "bathrooms must be an integer number",
+    "bedrooms must not be less than 0",
+    "bedrooms must be an integer number",
+    "squareMeters must not be less than 0",
+    "squareMeters must be an integer number"
+  ],
+  "error": "Bad Request",
+  "statusCode": 400
+}
+```
 
 This is because the `CreateListingDto` expects the `price`, `bathrooms`, `bedrooms` and `squareMeters` fields to be numbers, but they're being sent as strings.
 
@@ -524,7 +573,9 @@ Nice! Let's now consider some validation we'd like to do on the file uploads:
 - The files should have a max size of 1MB
 - We only want to allow a maximum of 10 images to be uploaded
 
-To achieve this validation, we can use NestJS Pipes. In fact, NestJS has some built-in pipes to help with some of the above validation:
+To achieve this validation, we can use NestJS Pipes. In fact, NestJS has some built-in pipes to help with some of the above validation. Specifically, there's the ParseFilePipe that allows us to pass in 'validators'.
+
+NestJS has 2 built in validators, `FileTypeValidator` and `MaxFileSizeValidator`. Let's use these to validate the file type and max file size:
 
 ```ts
 import { Controller, Post, Body, UseInterceptors, UploadedFiles } from '@nestjs/common'
@@ -746,8 +797,8 @@ import { Queue } from 'bull'
 export class ListingProducer {
   constructor(@InjectQueue(`listing`) private listingQueue: Queue) {}
 
-  async createListingImage(payload: string) {
-    return await this.listingQueue.add(`createListingImage`, payload)
+  async createListingImage(image: Express.Multer.File) {
+    return await this.listingQueue.add(`createListingImage`, image)
   }
 }
 ```
@@ -769,8 +820,8 @@ import { Job } from 'bull'
 @Processor(`listing`)
 export class ListingConsumer {
   @Process(`createListingImage`)
-  async createListingImage(job: Job<string>) {
-    console.log(`createListingImage job data:`, job.data)
+  async createListingImage(job: Job<Express.Multer.File>) {
+    console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
 }
@@ -816,7 +867,7 @@ export class ListingService {
     })
     for (const image of images) {
       // send image to queue
-      await this.listingQueue.createListingImage(image.originalname)
+      await this.listingQueue.createListingImage(image)
     }
     return listing
   }
@@ -851,9 +902,9 @@ import { ListingConsumer } from './queue/listing.consumer'
 import { LISTING_QUEUE } from '../../core/queue/queue.constants'
 
 @Module({
-  imports: [BullModule.registerQueue({ name: LISTING_QUEUE }), DatabaseModule],
+  imports: [BullModule.registerQueue({ name: LISTING_QUEUE }), DatabaseModule], // <-- use constant
   controllers: [ListingController],
-  providers: [ListingService, ListingProducer, ListingConsumer], // <-- add producer and consumer
+  providers: [ListingService, ListingProducer, ListingConsumer],
 })
 export class ListingModule {}
 ```
@@ -864,14 +915,14 @@ In the producer:
 import { Injectable } from '@nestjs/common'
 import { InjectQueue } from '@nestjs/bull'
 import { Queue } from 'bull'
-import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
 
 @Injectable()
 export class ListingProducer {
   constructor(@InjectQueue(LISTING_QUEUE) private listingQueue: Queue) {}
 
-  async createListingImage(payload: string) {
-    return await this.listingQueue.add(`createListingImage`, payload)
+  async createListingImage(image: Express.Multer.File) {
+    return await this.listingQueue.add(`createListingImage`, image)
   }
 }
 ```
@@ -881,13 +932,13 @@ And the consumer:
 ```ts
 import { Process, Processor } from '@nestjs/bull'
 import { Job } from 'bull'
-import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
 
 @Processor(LISTING_QUEUE)
 export class ListingConsumer {
   @Process(`createListingImage`)
-  async createListingImage(job: Job<string>) {
-    console.log(`createListingImage job data:`, job.data)
+  async createListingImage(job: Job<Express.Multer.File>) {
+    console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
 }
@@ -910,8 +961,8 @@ export class ListingConsumer {
   constructor(private readonly logger: Logger) {}
 
   @Process(`createListingImage`)
-  async createListingImage(job: Job<string>) {
-    console.log(`createListingImage job data:`, job.data)
+  async createListingImage(job: Job<Express.Multer.File>) {
+    console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
 
@@ -972,8 +1023,8 @@ export class ListingConsumer extends BaseConsumer {
   }
 
   @Process(`createListingImage`)
-  async createListingImage(job: Job<string>) {
-    console.log(`createListingImage job data:`, job.data)
+  async createListingImage(job: Job<Express.Multer.File>) {
+    console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
 
@@ -1009,8 +1060,8 @@ export class ListingConsumer extends BaseConsumer {
   }
 
   @Process(`createListingImage`)
-  async createListingImage(job: Job<string>) {
-    console.log(`createListingImage job data:`, job.data)
+  async createListingImage(job: Job<Express.Multer.File>) {
+    console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
 
@@ -1024,11 +1075,144 @@ export class ListingConsumer extends BaseConsumer {
 
 Great work! We've setup a queue and added a job to it. In the next step, we'll see how we can visualize this queue using Bull Arena.
 
-## Setting up Bull Arena
+## Setting up Bull Board
 
-- remove Bull arena from http logging
+Let's add a way to visualize the queue and jobs in the browser.
 
-## Using file paths from disk with uploading to Google Cloud Storage
+This is useful for development and debugging, but also for production as it allows you to monitor the queue and jobs in real-time.
+
+We're going to use [Bull Board](https://github.com/felixmosh/bull-board/tree/master) to achieve this - the most popular UI tool to visualize Bull queues.
+
+Let's start by installing the relevant packages:
+
+```bash
+pnpm add @bull-board/nestjs @bull-board/api @bull-board/express
+```
+
+Let's start by registering the Bull Board instance in the `QueueModule` we setup earlier:
+
+```ts
+import { Module } from '@nestjs/common'
+import { BullModule } from '@nestjs/bull'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+import { BullBoardModule } from '@bull-board/nestjs'
+import { ExpressAdapter } from '@bull-board/express'
+
+@Module({
+  imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const username = configService.get('redis.username')
+        const password = configService.get('redis.password')
+        return {
+          redis: {
+            host: configService.get('redis.host'),
+            port: configService.get('redis.port'),
+            ...(username && { username }),
+            ...(password && { password }),
+          },
+        }
+      },
+      inject: [ConfigService],
+    }),
+    BullBoardModule.forRoot({
+      route: `/queues`,
+      adapter: ExpressAdapter,
+    }),
+  ],
+})
+export class QueueModule {}
+```
+
+**Important to note:** If you want to add some authentication to restrict access to the `/queues` route, you can use the `middleware` option and pass in an Express middleware function.
+
+Similar to Bull, with each queue you define you also need to register a Bull Board instance for that queue so it shows up in the UI.
+
+In the `ListingModule`, register a Bull Board instance for the `listing` queue. We can leverage the `LISTING_QUEUE` constant we setup earlier:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+import { BullModule } from '@nestjs/bull'
+import { ListingProducer } from './queue/listing.producer'
+import { ListingConsumer } from './queue/listing.consumer'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { BullBoardModule } from '@bull-board/nestjs'
+import { BullAdapter } from '@bull-board/api/bullAdapter'
+
+@Module({
+  imports: [
+    BullModule.registerQueue({ name: LISTING_QUEUE }),
+    BullBoardModule.forFeature({
+      name: LISTING_QUEUE,
+      adapter: BullAdapter,
+    }),
+    DatabaseModule,
+  ],
+  controllers: [ListingController],
+  providers: [ListingService, ListingProducer, ListingConsumer],
+})
+export class ListingModule {}
+```
+
+And that's it! Spin up your local server and go to `/queues` in your browser. You'll see the `listing` queue listed there along with the jobs that have been added to it.
+
+An optional step:
+
+You might've noticed when you visit the `/queues` route in your browser, the respective HTTP requests are logged to the console.
+
+For local development, this can cause quite a few logs to be printed to the console. If you'd like to disable this, you tweak the existing `LoggerMiddleware` like this:
+
+```ts
+import { Injectable, NestMiddleware } from '@nestjs/common'
+import { Request, Response, NextFunction } from 'express'
+import { Logger } from './logger.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  constructor(private readonly logger: Logger, private readonly configService: ConfigService) {}
+
+  use(req: Request, res: Response, next: NextFunction) {
+    const environment = this.configService.get(`environment`)
+    const isQueueRoute = req.url.startsWith('/queue') // <-- Check if the URL starts with /queue
+    if (!isQueueRoute && environment !== `test`) {
+      const start = Date.now()
+      const { method, url, headers, query, body } = req
+
+      res.on('finish', () => {
+        const responseTime = Date.now() - start
+        const message = `${method} ${url} ${res.statusCode} ${responseTime}ms`
+        const statusCode = res.statusCode
+        const logData = {
+          responseTime,
+          method,
+          url,
+          headers,
+          query,
+          body,
+        }
+
+        if (statusCode >= 500) {
+          this.logger.error(message, undefined, `HTTP`, logData)
+        } else if (statusCode >= 400) {
+          this.logger.warn(message, `HTTP`, logData)
+        } else {
+          this.logger.log(message, `HTTP`, logData)
+        }
+      })
+    }
+    next()
+  }
+}
+```
+
+And that's it! Now you won't have the HTTP requests logged to the console when visiting any `/queues/*` route.
+
+## Handling files in the queue
 
 - Discuss trade-offs of saving files to disk vs uploading image to job queue
 - Update controller to save files to disk
