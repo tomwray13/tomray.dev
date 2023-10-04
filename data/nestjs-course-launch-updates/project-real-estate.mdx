@@ -992,7 +992,7 @@ import { Job } from 'bull'
 import { Logger } from '../logger/logger.service'
 
 export abstract class BaseConsumer {
-  constructor(private readonly logger: Logger) {}
+  constructor(protected readonly logger: Logger) {}
   @OnQueueFailed()
   onError(job: Job<any>, error: any) {
     this.logger.error(
@@ -1005,7 +1005,10 @@ export abstract class BaseConsumer {
 }
 ```
 
-Note that I've used `abstract` here. This is because we don't ever want to instantiate this class directly, we just want to extend from it.
+Note a couple of things:
+
+- I've used `abstract` when defining the class. This is because we don't ever want to instantiate this class directly, we just want to extend from it.
+- For the logger, I've used `protected` instead of `private`. This is because we want to be able to access the logger in the classes that extend from this class.
 
 Let's now update the `listing.consumer.ts` to extend from this class:
 
@@ -1027,16 +1030,6 @@ export class ListingConsumer extends BaseConsumer {
     console.log(`createListingImage filename:`, job.data.originalname)
     return job.data
   }
-
-  // @OnQueueFailed()
-  // async onError(job: Job<string>, error: any) {
-  //   this.logger.error(
-  //     `Failed job ${job.id} of type ${job.name}: ${error.message}`,
-  //     error.stack,
-  //     `Queue`,
-  //     job.data
-  //   )
-  // }
 }
 ```
 
@@ -1066,70 +1059,225 @@ export class ListingConsumer extends BaseConsumer {
   }
 
   @OnQueueFailed()
-  async onError(job: Job<UploadListingImageDto>, error: any) {
+  async onError(job: Job<string>, error: any) {
     super.onError(job, error)
     // do something else here
   }
 }
 ```
 
-Great work! We've setup a queue and added a job to it. In the next step, we'll see how we can visualize this queue using Bull Arena.
+Great work! We've setup a queue and added a job to it.
 
-## Setting up Bull Board
+## Adding the logic to process the file uploads
 
-Let's add a way to visualize the queue and jobs in the browser.
+Now that we've set up the queue, let's add the logic to process the file uploads. On a high level, here's what we'd like to within the job:
 
-This is useful for development and debugging, but also for production as it allows you to monitor the queue and jobs in real-time.
+- Upload the file to Google Cloud Storage, getting the public image url
+- Store the respective public url in the database associated with the listing
 
-We're going to use [Bull Board](https://github.com/felixmosh/bull-board/tree/master) to achieve this - the most popular UI tool to visualize Bull queues.
-
-Let's start by installing the relevant packages:
-
-```bash
-pnpm add @bull-board/nestjs @bull-board/api @bull-board/express
-```
-
-Let's start by registering the Bull Board instance in the `QueueModule` we setup earlier:
+Right now, we're sending the file name to the queue:
 
 ```ts
-import { Module } from '@nestjs/common'
-import { BullModule } from '@nestjs/bull'
-import { ConfigModule, ConfigService } from '@nestjs/config'
-import { BullBoardModule } from '@bull-board/nestjs'
-import { ExpressAdapter } from '@bull-board/express'
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+import { ListingProducer } from './queue/listing.producer'
 
-@Module({
-  imports: [
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => {
-        const username = configService.get('redis.username')
-        const password = configService.get('redis.password')
-        return {
-          redis: {
-            host: configService.get('redis.host'),
-            port: configService.get('redis.port'),
-            ...(username && { username }),
-            ...(password && { password }),
-          },
-        }
-      },
-      inject: [ConfigService],
-    }),
-    BullBoardModule.forRoot({
-      route: `/queues`,
-      adapter: ExpressAdapter,
-    }),
-  ],
-})
-export class QueueModule {}
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly listingQueue: ListingProducer
+  ) {}
+
+  async create({ data, images }: { data: CreateListingDto; images: Express.Multer.File[] }) {
+    const listing = await this.databaseService.listing.create({
+      data,
+    })
+    for (const image of images) {
+      // send image to queue
+      await this.listingQueue.createListingImage(image.originalname)
+    }
+    return listing
+  }
+}
 ```
 
-**Important to note:** If you want to add some authentication to restrict access to the `/queues` route, you can use the `middleware` option and pass in an Express middleware function.
+This was just a placeholder while we set up the queue.
 
-Similar to Bull, with each queue you define you also need to register a Bull Board instance for that queue so it shows up in the UI.
+To execute the logic we just mentioned, we'll need to pass the following:
 
-In the `ListingModule`, register a Bull Board instance for the `listing` queue. We can leverage the `LISTING_QUEUE` constant we setup earlier:
+- The file itself
+- The mime type of the file
+- The associated listing id
+
+We have a couple of options for how we can pass the file to the queue:
+
+- Send the file Buffer to the queue (the file in binary format)
+- Convert the file Buffer to a string and send that to the queue
+
+Redis is optimized for handling small bits of data, such as strings. So, converting the file Buffer into a string and sending that string to the Redis queue for processing is a valid approach to reduce the job size and can be beneficial for Redis.
+
+In the queue itself, we'll then convert the string back to a Buffer and upload it to Google Cloud Storage.
+
+Let's create a new DTO for this payload called `UploadListingImageDto`:
+
+```ts
+import { Listing } from '@prisma/client'
+import { IsInt, IsNotEmpty, IsString } from 'class-validator'
+
+export class UploadListingImageDto {
+  @IsString()
+  @IsNotEmpty()
+  base64File: string
+
+  @IsString()
+  @IsNotEmpty()
+  mimeType: string
+
+  @IsInt()
+  listingId: Listing[`id`]
+}
+```
+
+Leverage a DTO for the payload is a good idea as it allows us to add type checking and also to use a consistent payload across the application.
+
+Let's update the `ListingProducer` to use this DTO:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { InjectQueue } from '@nestjs/bull'
+import { Queue } from 'bull'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+
+@Injectable()
+export class ListingProducer {
+  constructor(@InjectQueue(LISTING_QUEUE) private listingQueue: Queue) {}
+
+  async uploadListingImage(payload: UploadListingImageDto) {
+    return await this.listingQueue.add(`createListingImage`, payload)
+  }
+}
+```
+
+We should also update the `ListingConsumer` to use this DTO:
+
+```ts
+import { Process, Processor, OnQueueFailed } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { Logger } from '../../core/logger/logger.service'
+import { BaseConsumer } from '../../core/queue/base.consumer'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(logger: Logger) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async createListingImage(job: Job<UploadListingImageDto>) {
+    console.log(`createListingImage job data:`, job.data)
+    return job.data
+  }
+
+  // ...
+}
+```
+
+And finally, we'll need to update the `ListingService` to use this DTO:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+import { ListingProducer } from './queue/listing.producer'
+
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly listingQueue: ListingProducer
+  ) {}
+
+  async create({ data, images }: { data: CreateListingDto; images: Express.Multer.File[] }) {
+    const listing = await this.databaseService.listing.create({
+      data,
+    })
+    for (const image of images) {
+      await this.listingQueue.uploadListingImage({
+        base64File: `TODO`, // <-- we'll get to this next
+        mimeType: image.mimetype,
+        listingId: listing.id,
+      })
+    }
+    return listing
+  }
+}
+```
+
+As noted above, we're going to convert the Buffer to a string and send that to the queue, then convert the string back to a Buffer in the queue.
+
+Let's add a utilities module and respective `FileService` for these file conversion methods:
+
+```bash
+npx nest generate module utilities
+npx nest generate service utilities/file
+```
+
+And in the `FileService`:
+
+```ts
+import { Injectable } from '@nestjs/common'
+
+@Injectable()
+export class FileService {
+  bufferToBase64(buffer: Buffer): string {
+    return buffer.toString(`base64`)
+  }
+
+  base64ToBuffer(base64String: string): Buffer {
+    return Buffer.from(base64String, `base64`)
+  }
+}
+```
+
+Now let's update the `listing.service.ts` to convert the file Buffer to a string and send that to the queue:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+import { ListingProducer } from './queue/listing.producer'
+import { FileService } from '../../utilities/file/file.service'
+
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly listingQueue: ListingProducer,
+    private readonly fileService: FileService
+  ) {}
+
+  async create({ data, images }: { data: CreateListingDto; images: Express.Multer.File[] }) {
+    const listing = await this.databaseService.listing.create({
+      data,
+    })
+    for (const image of images) {
+      await this.listingQueue.uploadListingImage({
+        base64File: this.fileService.bufferToBase64(image.buffer),
+        mimeType: image.mimetype,
+        listingId: listing.id,
+      })
+    }
+    return listing
+  }
+}
+```
+
+As we're using the `FileService`, we'll need to import the respective module into the `ListingModule`:
 
 ```ts
 import { Module } from '@nestjs/common'
@@ -1140,17 +1288,13 @@ import { BullModule } from '@nestjs/bull'
 import { ListingProducer } from './queue/listing.producer'
 import { ListingConsumer } from './queue/listing.consumer'
 import { LISTING_QUEUE } from '../../core/queue/queue.constants'
-import { BullBoardModule } from '@bull-board/nestjs'
-import { BullAdapter } from '@bull-board/api/bullAdapter'
+import { UtilitiesModule } from '../../utilities/utilities.module'
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: LISTING_QUEUE }),
-    BullBoardModule.forFeature({
-      name: LISTING_QUEUE,
-      adapter: BullAdapter,
-    }),
     DatabaseModule,
+    UtilitiesModule, // <-- add this
   ],
   controllers: [ListingController],
   providers: [ListingService, ListingProducer, ListingConsumer],
@@ -1158,113 +1302,531 @@ import { BullAdapter } from '@bull-board/api/bullAdapter'
 export class ListingModule {}
 ```
 
-And that's it! Spin up your local server and go to `/queues` in your browser. You'll see the `listing` queue listed there along with the jobs that have been added to it.
-
-An optional step:
-
-You might've noticed when you visit the `/queues` route in your browser, the respective HTTP requests are logged to the console.
-
-For local development, this can cause quite a few logs to be printed to the console. If you'd like to disable this, you tweak the existing `LoggerMiddleware` like this:
+Let's now update the consumer to first convert the string back to a Buffer:
 
 ```ts
-import { Injectable, NestMiddleware } from '@nestjs/common'
-import { Request, Response, NextFunction } from 'express'
-import { Logger } from './logger.service'
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
+import { Logger } from '../../../core/logger/logger.service'
+import { BaseConsumer } from '../../../core/queue/base.consumer'
+import { FileService } from '../../../utilities/file/file.service'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(logger: Logger, private readonly fileService: FileService) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async uploadListingImage(job: Job<UploadListingImageDto>) {
+    const { base64File } = job.data
+    const buffer = this.fileService.base64ToBuffer(base64File)
+    // TODO: upload file to Google Cloud Storage
+    // TODO: store public url in database
+    return job.data
+  }
+
+  // ...
+}
+```
+
+Let's now add the logic to upload the file to Google Cloud Storage.
+
+Let's next install the Google Cloud Storage package:
+
+```bash
+pnpm add @google-cloud/storage
+```
+
+Google Cloud Storage allows us to upload and retrieve files from _buckets_.
+
+You'll need to have an existing Google Cloud project set up before proceeding. Here's [the link](https://console.cloud.google.com/projectcreate) to creating a new project if you need it.
+
+Inside the [Google Cloud console](https://console.cloud.google.com), open up the navigation and head to _Cloud Storage_ and then _Buckets_:
+
+IMAGE
+
+You might be prompted to "Enable Billing", which is necessary if you'd like to use Google Cloud Buckets.
+
+Next, press the **Create Bucket** button:
+
+IMAGE
+
+Go through the form and keep the default settings, except for when you reach the section on "Choose how to control access to objects" - you should uncheck the box "Enforce public access prevention on this bucket".
+
+Once you're bucket is created, head to the _Permissions_ tab and add a new permission:
+
+![Google Cloud Storage bucket permissions](/static/images/google-cloud-file-uploads/google-cloud-storage-permissions.png)
+
+Search and select _allUsers_, then choose the role _Storage Object Viewer_:
+
+![Select allUsers and Storage Object Viewers permissions](/static/images/google-cloud-file-uploads/google-cloud-storage-permissions-allUsers.png)
+
+Setting these configurations means that all files uploaded are accessible via a public link that we'll store in the database.
+
+In order to start uploading files to the bucket, we need to set up some credentials (a service account key) with Google Cloud. Only the people who have access to these credentials will be able to access your bucket.
+
+Head back into the navigation, go to _APIs and services_ then select _Credentials_:
+
+![Navigate to APIs and services](/static/images/google-cloud-file-uploads/google-cloud-navigation-credentials.png)
+
+You'll then want to press the _Create Credentials_ button and select _Service account_:
+
+![Create Google Cloud credentials](/static/images/google-cloud-file-uploads/google-cloud-create-credentials.png)
+
+Give your service account a name and hit _Create and continue_:
+
+![Create a service account](/static/images/google-cloud-file-uploads/google-cloud-service-account.png)
+
+In the next step, you'll need to apply a role to this service account to define the kind of access it has. You'll want to scroll to _Cloud Storage_ and then choose _Storage Admin_, which gives you full read and write operations to Google Cloud Storage:
+
+![Enable Storage Admin permissions to service account](/static/images/google-cloud-file-uploads/google-cloud-service-account-access.png)
+
+You can skip the final section.
+
+Once your service account has been created, go into the service account and navigate to the _Keys_ tab. You want to create a key for this service account which gives you the private, unique information you need to make read/write operations:
+
+![Navigate to the service account keys tab](/static/images/google-cloud-file-uploads/google-cloud-service-account-keys.png)
+
+Then create a new key. When prompted, choose the JSON option, which will download the file to your local machine:
+
+![Download service account JSON key](/static/images/google-cloud-file-uploads/google-cloud-service-account-create-key.png)
+
+Most tutorials suggest adding this JSON file to the root of your project and adding it to your `gitignore` file (because this file contains sensitive keys to access your Google Cloud account).
+
+However, I prefer to instead grab the relevant keys from the JSON file and leverage env variables. The main reason because it's much simpler for deployment - you just need to add the env variables in each environment.
+
+Let's now go back into the NestJS project and define some new env variables in the `config` file:
+
+```ts
+export default () => ({
+  // ...
+  googleCloud: {
+    projectId: process.env.GCS_PROJECT_ID,
+    clientEmail: process.env.GCS_CLIENT_EMAIL,
+    privateKey: process.env.GCS_PRIVATE_KEY
+      ? process.env.GCS_PRIVATE_KEY.replace(/\\n/g, '\n')
+      : ``,
+  },
+})
+```
+
+In your env file, add the respective values for `GCS_PROJECT_ID`, `GCS_CLIENT_EMAIL` and `GCS_PRIVATE_KEY`.
+
+- `GCS_PROJECT_ID` is the project ID of your Google Cloud project
+- `GCS_CLIENT_EMAIL` is the client email of the service account you created
+- `GCS_PRIVATE_KEY` is the private key of the service account you created. You can find this in JSON file you downloaded under the `private_key` key
+
+Let's now create a `GoogleCloudService` module and service to handle the file uploads.
+
+In a new directory called `/services` add a sub directory called `google-cloud` and inside that add 2 new files:
+
+1. `google-cloud.module.ts`
+2. `google-cloud.service.ts`
+
+In the `google-cloud.module.ts` file, add the following:
+
+```ts
+import { Module } from '@nestjs/common'
+import { GoogleCloudService } from './google-cloud.service'
+
+@Module({
+  providers: [GoogleCloudService],
+  exports: [GoogleCloudService],
+})
+export class GoogleCloudModule {}
+```
+
+And then in the `google-cloud.service.ts` file:
+
+```ts
+import { Storage } from '@google-cloud/storage'
+import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 
 @Injectable()
-export class LoggerMiddleware implements NestMiddleware {
-  constructor(private readonly logger: Logger, private readonly configService: ConfigService) {}
+export class GoogleCloudService {
+  private storage: Storage
+  private bucket: string
+  constructor(private readonly configService: ConfigService) {
+    this.storage = new Storage({
+      projectId: this.configService.getOrThrow(`googleCloud.projectId`),
+      credentials: {
+        client_email: this.configService.getOrThrow(`googleCloud.clientEmail`),
+        private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
+      },
+    })
 
-  use(req: Request, res: Response, next: NextFunction) {
-    const environment = this.configService.get(`environment`)
-    const isQueueRoute = req.url.startsWith('/queue') // <-- Check if the URL starts with /queue
-    if (!isQueueRoute && environment !== `test`) {
-      const start = Date.now()
-      const { method, url, headers, query, body } = req
-
-      res.on('finish', () => {
-        const responseTime = Date.now() - start
-        const message = `${method} ${url} ${res.statusCode} ${responseTime}ms`
-        const statusCode = res.statusCode
-        const logData = {
-          responseTime,
-          method,
-          url,
-          headers,
-          query,
-          body,
-        }
-
-        if (statusCode >= 500) {
-          this.logger.error(message, undefined, `HTTP`, logData)
-        } else if (statusCode >= 400) {
-          this.logger.warn(message, `HTTP`, logData)
-        } else {
-          this.logger.log(message, `HTTP`, logData)
-        }
-      })
-    }
-    next()
+    this.bucket = `bucketname` // <-- add your bucket name here
   }
 }
 ```
 
-And that's it! Now you won't have the HTTP requests logged to the console when visiting any `/queues/*` route.
+What we've done here is:
 
-## Handling files in the queue
+- Imported the `Storage` class from the `@google-cloud/storage` package
+- Injected the `ConfigService` so we can access the env variables
+- Created a new instance of the `Storage` class, passing in the relevant credentials. The private `storage` property is now an instance of the `Storage` class, which we can use to interact with Google Cloud Storage
 
-- Discuss trade-offs of saving files to disk vs uploading image to job queue
-- Update controller to save files to disk
-- Add custom exception filter
-- Handle failed jobs
-- Handle successful jobs
-- Service for GCS
+It's also worth noting that you'll need to update your bucket name to what you called it when setting it up.
 
-## Process the job: upload to GCS and store url in database
+Let's now add an `uploadFile` method to upload a file to Google Cloud Storage:
 
-In NestJS, it's typically best practice to handle your validation in the controller layer and then pass the validated data to the service layer to handle the business logic.
+```ts
+import { Storage } from '@google-cloud/storage'
+import { Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 
-It's also best practice to do something similar when processing jobs:
+@Injectable()
+export class GoogleCloudService {
+  private storage: Storage
+  private bucket: string
+  constructor(private readonly configService: ConfigService) {
+    this.storage = new Storage({
+      projectId: this.configService.getOrThrow(`googleCloud.projectId`),
+      credentials: {
+        client_email: this.configService.getOrThrow(`googleCloud.clientEmail`),
+        private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
+      },
+    })
 
-1. In the job, validate the incoming payload
-2. Pass the validated payload to the service layer to handle the business logic
+    this.bucket = `bucketname` // <-- add your bucket name here
+  }
 
-- validate the job payload
-- upload file to GCS
-- store url in database in new table
+  async uploadFile(fileBuffer: Buffer) {
+    const bucket = this.storage.bucket(this.bucket)
+    const file = bucket.file(`randomfilename.jpg`) // TODO: generate random filename
+    await file.save(fileBuffer)
+    await file.makePublic()
+    return file.publicUrl()
+  }
+}
+```
 
-### Understand how the file upload works
+In the `uploadFile` method, we're interacting with the GCS bucket to save a file and make it public. We're then returning the public url of the file.
 
-The confusion you're experiencing is completely understandable, especially if you're used to working with certain libraries or systems where you pass around actual file objects or streams. The underlying magic here is the combination of the Google Cloud Storage Node.js client library and how Node.js handles file I/O.
+You'll notice there's a TODO in the method - we need to generate a random filename for the file. This is because Google Cloud Storage requires a unique filename for each file. We also need to set the file content type to the mime type of the file - this is so that when we retrieve the file, the client knows how to render it.
 
-Let's break this down:
+For generating the unique filename, let's create a new service in the `/utilities` directory for generating UIDs, as this functionality might be useful in other places in the application.
 
-Node.js File I/O: In Node.js, file operations are typically handled using paths rather than loading entire files into memory. This is efficient, especially for larger files, because it avoids excessive memory consumption. When you do operations on a file in Node.js, you often provide the path to the file, and the operation reads from or writes to that path directly.
+Let's first install a package to generate UIDs:
 
-Google Cloud Storage Client Library: The GCS Node.js client library is designed to work seamlessly with the Node.js way of handling files. When you call the bucket.upload(filePath) method, under the hood, the library:
+```bash
+pnpm add uid
+```
 
-Opens a read stream for the file at the given filePath.
-Reads the file in chunks.
-Sends those chunks to GCS until the entire file is uploaded.
-This is abstracted away from the developer for simplicity, but that's roughly what's happening.
+Then in the `utilities` directory, add a new `uid` service
 
-Why not the file itself?: It's common in web development (especially on the frontend or with certain backend frameworks) to deal with file objects, especially when users upload files via a web interface. However, in a server environment and especially when dealing with file storage systems or databases, it's often more efficient to work with paths or streams. Loading an entire large file into memory can be resource-intensive and slow.
+```bash
+npx nest generate service utilities/uid
+```
 
-File Paths are Versatile: By accepting a file path, the method allows for a range of use cases. You can pass in the path to a file that's just been uploaded by a user, a path to a file generated by your application, or even a path to a static file that's part of your application.
+In the `uid.service.ts` file, add the following:
 
-In summary, the approach used in the provided code is idiomatic for Node.js and is designed for efficiency and flexibility. The GCS library does the heavy lifting of streaming the file from disk and uploading it in chunks to Google Cloud Storage.
+```ts
+import { Injectable } from '@nestjs/common'
+import { uid } from 'uid'
 
-- Uploading csv files and validating them
-  -- implement abstracted csv service
-- Defining imports schema and storing record to database
-- Loop over each row and send it to listings queue for processing
-- We have no way of creating listings, so create listings module and service
-- Add a listing producer to send listings to queue
-- In the imports module, use listings producer to send listings to queue
-- Create a consumer to process listings in listings module
-- Bonus: storing respective csv file in S3 bucket
-<!-- - Send file off to queue for processing. Queue can be defined -->
+@Injectable()
+export class UidService {
+  generate(length?: number) {
+    return uid(length)
+  }
+}
+```
+
+Make sure you update the `UtilitiesModule` to include the `UidService`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { FileService } from './file/file.service'
+import { UidService } from './uid/uid.service'
+
+@Module({
+  providers: [FileService, UidService],
+  exports: [FileService, UidService],
+})
+export class UtilitiesModule {}
+```
+
+Great! Let's now continue working on the `GoogleCloudService` to generate a random filename and set the content type.
+
+First update the `GoogleCloudModule` to import the `UtilitiesModule`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { GoogleCloudService } from './google-cloud.service'
+import { UtilitiesModule } from '../../utilities/utilities.module'
+
+@Module({
+  imports: [UtilitiesModule], // <-- add this
+  providers: [GoogleCloudService],
+  exports: [GoogleCloudService],
+})
+export class GoogleCloudModule {}
+```
+
+Then let's import the `UidService` into the `GoogleCloudService` and use it to generate a unique filename:
+
+```ts
+import { Storage } from '@google-cloud/storage'
+import { Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { UidService } from '../../utilities/uid/uid.service'
+
+@Injectable()
+export class GoogleCloudService {
+  private storage: Storage
+  private bucket: string
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly uidService: UidService
+  ) {
+    this.storage = new Storage({
+      projectId: this.configService.getOrThrow(`googleCloud.projectId`),
+      credentials: {
+        client_email: this.configService.getOrThrow(`googleCloud.clientEmail`),
+        private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
+      },
+    })
+
+    this.bucket = `listings-83490834`
+  }
+
+  async uploadFile(fileBuffer: Buffer, fileMimeType: string) {
+    const bucket = this.storage.bucket(this.bucket)
+    const fileName = this.uidService.generate()
+    const file = bucket.file(`${fileName}`)
+    await file.save(fileBuffer, {
+      metadata: {
+        contentType: fileMimeType,
+      },
+    })
+    await file.makePublic()
+    return file.publicUrl()
+  }
+}
+```
+
+I've also passed in the `fileMimeType` as an argument and set this as the content type of the file when saving.
+
+Let's go back to the consumer and use this service to upload the file to Google Cloud Storage:
+
+```ts
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
+import { Logger } from '../../../core/logger/logger.service'
+import { BaseConsumer } from '../../../core/queue/base.consumer'
+import { FileService } from '../../../utilities/file/file.service'
+import { GoogleCloudService } from '../../../services/google-cloud/google-cloud.service'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(
+    logger: Logger,
+    private readonly fileService: FileService,
+    private readonly googleCloud: GoogleCloudService
+  ) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async uploadListingImage(job: Job<UploadListingImageDto>) {
+    const { base64File, mimeType } = job.data
+    const buffer = this.fileService.base64ToBuffer(base64File)
+    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    console.log(`publicUrl:`, publicUrl)
+    // TODO: save publicUrl to database
+    return job.data
+  }
+
+  // ...
+}
+```
+
+The final step is to save the public url to the database. Let's first add the new model and relation in the database by editing the Prisma schema:
+
+```json
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Listing {
+  id              Int       @id @default(autoincrement())
+  label           String
+  addressLine1    String
+  addressLine2    String?
+  addressCity     String
+  addressZipcode  String
+  addressState    String
+  price           Int
+  bathrooms       Int
+  bedrooms        Int
+  squareMeters    Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  images          ListingImage[]
+}
+
+model ListingImage {
+  id          Int       @id @default(autoincrement())
+  url         String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  listing     Listing @relation(fields: [listingId], references: [id])
+  listingId   Int
+}
+```
+
+To apply these changes, run and give the migration a name:
+
+```bash
+pnpm db:migrate:dev
+```
+
+Now back in the consumer, let's use the `DatabaseService` to save the public url to the database in the `ListingImage` table:
+
+```ts
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
+import { Logger } from '../../../core/logger/logger.service'
+import { BaseConsumer } from '../../../core/queue/base.consumer'
+import { FileService } from '../../../utilities/file/file.service'
+import { GoogleCloudService } from '../../../services/google-cloud/google-cloud.service'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+import { DatabaseService } from '../../../database/database.service'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(
+    logger: Logger,
+    private readonly fileService: FileService,
+    private readonly googleCloud: GoogleCloudService,
+    private readonly databaseService: DatabaseService
+  ) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async uploadListingImage(job: Job<UploadListingImageDto>) {
+    const { base64File, mimeType } = job.data
+    const buffer = this.fileService.base64ToBuffer(base64File)
+    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    return await this.databaseService.listingImage.create({
+      data: {
+        listingId: job.data.listingId,
+        url: publicUrl,
+      },
+    })
+  }
+
+  // ...
+}
+```
+
+And that's it! Great work.
+
+Before going onto testing, let's consider a refactor: imagine we want to add a new POST request to our API for someone to be able to upload an individual image to a listing. We want to return the image url immediately (i.e. don't use a job to process the image).
+
+We just added all this logic inside the consumer - so how can we reusue this logic?
+
+Well, you know in NestJS it's best practice to keep your controllers as thin as possible with all the logic in the services?
+
+It's often a good idea to do the same thing with your consumers - keep them as thin as possible and move the logic into the services.
+
+This way, the service layer can be leveraged in multiple places.
+
+Let's add a new method to the `ListingService` to upload an image to a listing:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateListingDto } from './dto/create-listing.dto'
+import { DatabaseService } from '../../database/database.service'
+import { ListingProducer } from './queue/listing.producer'
+import { FileService } from '../../utilities/file/file.service'
+import { UploadListingImageDto } from './dto/upload-listing-image.dto'
+import { GoogleCloudService } from '../../services/google-cloud/google-cloud.service'
+
+@Injectable()
+export class ListingService {
+  constructor(
+    private readonly databaseService: DatabaseService,
+    private readonly listingQueue: ListingProducer,
+    private readonly fileService: FileService,
+    private readonly googleCloud: GoogleCloudService
+  ) {}
+
+  // ...
+
+  async uploadImage(data: UploadListingImageDto) {
+    const { base64File, mimeType, listingId } = data
+    const buffer = this.fileService.base64ToBuffer(base64File)
+    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    return await this.databaseService.listingImage.create({
+      data: {
+        listingId: listingId,
+        url: publicUrl,
+      },
+    })
+  }
+}
+```
+
+Then you can refactor the consumer to use this method:
+
+```ts
+import { OnQueueFailed, Process, Processor } from '@nestjs/bull'
+import { Job } from 'bull'
+import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
+import { Logger } from '../../../core/logger/logger.service'
+import { BaseConsumer } from '../../../core/queue/base.consumer'
+import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
+import { ListingService } from '../listing.service'
+
+@Processor(LISTING_QUEUE)
+export class ListingConsumer extends BaseConsumer {
+  constructor(logger: Logger, private readonly listingService: ListingService) {
+    super(logger)
+  }
+
+  @Process(`createListingImage`)
+  async uploadListingImage(job: Job<UploadListingImageDto>) {
+    return await this.listingService.uploadImage(job.data)
+  }
+
+  // ...
+}
+```
+
+As you can see, keeping all the logic in the service layer is a good idea as it allows you to reuse the logic in multiple places.
+
+## Testing
+
+In order to upload files to Google Cloud Storage, you'll need:
+
+- A Google Cloud account and project ID
+- A Google Cloud Storage bucket
+- A service account with the relevant permissions to upload files to the bucket
+
+- Upload buffer to GCS
+- Store url in database
+
+## Setting up Bull Arena
+
+- remove Bull arena from http logging
 
 ```
 
