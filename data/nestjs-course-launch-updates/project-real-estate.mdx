@@ -1068,6 +1068,143 @@ export class ListingConsumer extends BaseConsumer {
 
 Great work! We've setup a queue and added a job to it.
 
+## Setting up Bull Board
+
+Let's add a way to visualize the queue and jobs in the browser.
+
+This is useful for development and debugging, but also for production as it allows you to monitor the queue and jobs in real-time.
+
+We're going to use [Bull Board](https://github.com/felixmosh/bull-board/tree/master) to achieve this - the most popular UI tool to visualize Bull queues.
+
+Let's start by installing the relevant packages:
+
+```bash
+pnpm add @bull-board/nestjs @bull-board/api @bull-board/express
+```
+
+Let's start by registering the Bull Board instance in the `QueueModule` we setup earlier:
+
+```ts
+import { Module } from '@nestjs/common'
+import { BullModule } from '@nestjs/bull'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+import { BullBoardModule } from '@bull-board/nestjs'
+import { ExpressAdapter } from '@bull-board/express'
+
+@Module({
+  imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      useFactory: async (configService: ConfigService) => {
+        const username = configService.get('redis.username')
+        const password = configService.get('redis.password')
+        return {
+          redis: {
+            host: configService.get('redis.host'),
+            port: configService.get('redis.port'),
+            ...(username && { username }),
+            ...(password && { password }),
+          },
+        }
+      },
+      inject: [ConfigService],
+    }),
+    BullBoardModule.forRoot({
+      route: `/queues`,
+      adapter: ExpressAdapter,
+    }),
+  ],
+})
+export class QueueModule {}
+```
+
+**Important to note:** If you want to add some authentication to restrict access to the `/queues` route, you can use the `middleware` option and pass in an Express middleware function.
+
+Similar to Bull, with each queue you define you also need to register a Bull Board instance for that queue so it shows up in the UI.
+
+In the `ListingModule`, register a Bull Board instance for the `listing` queue. We can leverage the `LISTING_QUEUE` constant we setup earlier:
+
+```ts
+import { Module } from '@nestjs/common'
+import { ListingService } from './listing.service'
+import { ListingController } from './listing.controller'
+import { DatabaseModule } from '../../database/database.module'
+import { BullModule } from '@nestjs/bull'
+import { ListingProducer } from './queue/listing.producer'
+import { ListingConsumer } from './queue/listing.consumer'
+import { LISTING_QUEUE } from '../../core/queue/queue.constants'
+import { BullBoardModule } from '@bull-board/nestjs'
+import { BullAdapter } from '@bull-board/api/bullAdapter'
+
+@Module({
+  imports: [
+    BullModule.registerQueue({ name: LISTING_QUEUE }),
+    BullBoardModule.forFeature({
+      name: LISTING_QUEUE,
+      adapter: BullAdapter,
+    }),
+    DatabaseModule,
+  ],
+  controllers: [ListingController],
+  providers: [ListingService, ListingProducer, ListingConsumer],
+})
+export class ListingModule {}
+```
+
+And that's it! Spin up your local server and go to `/queues` in your browser. You'll see the `listing` queue listed there along with the jobs that have been added to it.
+
+An optional step:
+
+You might've noticed when you visit the `/queues` route in your browser, the respective HTTP requests are logged to the console.
+
+For local development, this can cause quite a few logs to be printed to the console. If you'd like to disable this, you tweak the existing `LoggerMiddleware` like this:
+
+```ts
+import { Injectable, NestMiddleware } from '@nestjs/common'
+import { Request, Response, NextFunction } from 'express'
+import { Logger } from './logger.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  constructor(private readonly logger: Logger, private readonly configService: ConfigService) {}
+
+  use(req: Request, res: Response, next: NextFunction) {
+    const environment = this.configService.get(`environment`)
+    const isQueueRoute = req.url.startsWith('/queue') // <-- Check if the URL starts with /queue
+    if (!isQueueRoute && environment !== `test`) {
+      const start = Date.now()
+      const { method, url, headers, query, body } = req
+
+      res.on('finish', () => {
+        const responseTime = Date.now() - start
+        const message = `${method} ${url} ${res.statusCode} ${responseTime}ms`
+        const statusCode = res.statusCode
+        const logData = {
+          responseTime,
+          method,
+          url,
+          headers,
+          query,
+          body,
+        }
+
+        if (statusCode >= 500) {
+          this.logger.error(message, undefined, `HTTP`, logData)
+        } else if (statusCode >= 400) {
+          this.logger.warn(message, `HTTP`, logData)
+        } else {
+          this.logger.log(message, `HTTP`, logData)
+        }
+      })
+    }
+    next()
+  }
+}
+```
+
+And that's it! Now you won't have the HTTP requests logged to the console when visiting any `/queues/*` route.
+
 ## Adding the logic to process the file uploads
 
 Now that we've set up the queue, let's add the logic to process the file uploads. On a high level, here's what we'd like to within the job:
