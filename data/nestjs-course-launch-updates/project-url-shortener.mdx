@@ -1282,6 +1282,242 @@ Give it a test and you should be able to paginate and filter the list of urls!
 
 Our API now has full CRUD functionality, great work!
 
+## API key authentication
+
+As mentioned at the start of this tutorial, this project is an internal tool for a startup to manage short URLs. So we want to make sure that the API is protected from public use.
+
+We're going to use API key authentication. This means that each request to the API will need to include an API key in the request headers. If the API key is not present or is invalid, the request will be rejected.
+
+To implement this, we'll use [NestJS Guards](https://docs.nestjs.com/guards).
+
+In NestJS, a guard is a class with a single responsibility: determining whether a given request is allowed to proceed to its route handler or not.
+
+It's called early in the NestJS request lifecycle, before the route handler is called. If the guard returns `true`, the request is allowed to proceed to the route handler. If the guard returns `false`, the request is rejected and the route handler is not called.
+
+Let's use the Nest CLI to create a guard in the project:
+
+```bash
+npx nest generate guard auth
+```
+
+This will create a new file called `auth.guard.ts` in a new `/auth` directory. Here's the code:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    return true
+  }
+}
+```
+
+It also added a unit testing file, which we'll get to later on.
+
+Before adding any logic to the guard, let's implement it in the `UrlController` like this:
+
+```ts
+// ... imports
+
+@Controller()
+@UseGuards(AuthGuard) // <-- add this line
+export class UrlController {
+  // ... controller methods
+}
+```
+
+This applies the guard to all the controller methods. Let's also update the guard to always return `false` so we can see the guard in action:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    return false
+  }
+}
+```
+
+Now if you try to make a request to the API, you'll see the request is rejected with a `403 Forbidden` response:
+
+```bash
+curl -X GET http://localhost:3000/urls
+```
+
+```json
+{
+  "statusCode": 403,
+  "message": "Forbidden resource",
+  "error": "Forbidden"
+}
+```
+
+Let's update the guard to check if the API key is present in the request headers. If it is AND matches `SECRET`, we'll allow the request to proceed. If it's not, we'll throw a specific `UnauthorizedException` error:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
+import { Request } from 'express'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    const request = context.switchToHttp().getRequest()
+    const key = this.extractApiKey(request)
+    if (key !== `SECRET`) {
+      throw new UnauthorizedException()
+    }
+    return true
+  }
+
+  private extractApiKey(request: Request) {
+    const key = request.headers[`x-api-key`]
+    if (!key) return
+    return key
+  }
+}
+```
+
+If you try the same request as before:
+
+```bash
+curl -X GET http://localhost:3000/urls
+```
+
+You should now see a `401 Unauthorized` response:
+
+```json
+{
+  "statusCode": 401,
+  "message": "Unauthorized"
+}
+```
+
+Update your request to include the API key in the request headers and try the request again, this time it should succeed!
+
+There's a couple more updates we need to make:
+
+1. We've hard-coded in the string `SECRET` into the guard which isn't really best practice. Let's update this to use an environment variable instead.
+2. The @Get(':uid') endpoint should be public, so we need to exclude this from the guard.
+
+To update the guard to get the API key from an environment variable, we'll use the `ConfigService`.
+
+First update the config object to include a new `apiKey` property:
+
+```ts
+export default () => ({
+  host: process.env.HOST,
+  environment: process.env.NODE_ENV || `development`,
+  redis: {
+    host: process.env.REDIS_HOST,
+    port: process.env.REDIS_PORT,
+    username: process.env.REDIS_USERNAME,
+    password: process.env.REDIS_PASSWORD,
+  },
+  apiKey: process.env.API_KEY,
+})
+```
+
+Then make sure you add the `API_KEY` to your `.env`, `.env.test` and `.env.example` file. You can use any string you want for the API key.
+
+Then update the guard to use the `ConfigService`:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { Request } from 'express'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  private apiKey: string
+  constructor(private readonly configService: ConfigService) {
+    this.apiKey = this.configService.getOrThrow(`apiKey`)
+  }
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    const request = context.switchToHttp().getRequest()
+    const key = this.extractApiKey(request)
+    if (key !== this.apiKey) {
+      throw new UnauthorizedException()
+    }
+    return true
+  }
+
+  private extractApiKey(request: Request) {
+    const key = request.headers[`x-api-key`]
+    if (!key) return
+    return key
+  }
+}
+```
+
+Nice work! Let's now get to the 2nd point - excluding the `@Get(':uid')` endpoint from the guard.
+
+Right now the guard is applied to all the controller methods, but we can also apply it to specific methods. Let's update the controller to apply the guard to all methods except the `findOne()` method:
+
+```ts
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  Res,
+  Query,
+  UseGuards,
+} from '@nestjs/common'
+import { UrlService } from './url.service'
+import { CreateUrlDto } from './dto/create-url.dto'
+import { UpdateUrlDto } from './dto/update-url.dto'
+import { UrlExistsPipe } from './pipes/url-exists.pipe'
+import { Url } from '@prisma/client'
+import { Response } from 'express'
+import { GetUrlsDto } from './dto/get-urls.dto'
+import { AuthGuard } from '../../auth/auth.guard'
+
+@Controller()
+export class UrlController {
+  constructor(private readonly urlService: UrlService) {}
+
+  @Post('url')
+  @UseGuards(AuthGuard)
+  create(@Body() createUrlDto: CreateUrlDto) {
+    return this.urlService.create(createUrlDto)
+  }
+
+  @Get('url')
+  @UseGuards(AuthGuard)
+  findAll(@Query() queryParams: GetUrlsDto) {
+    return this.urlService.findAll(queryParams)
+  }
+
+  @Get(':uid')
+  findOne(@Param('uid', UrlExistsPipe) url: Url, @Res() res: Response) {
+    res.redirect(url.redirect)
+  }
+
+  @Patch('url/:uid')
+  @UseGuards(AuthGuard)
+  update(@Param('uid', UrlExistsPipe) url: Url, @Body() updateUrlDto: UpdateUrlDto) {
+    return this.urlService.update(url.id, updateUrlDto)
+  }
+
+  @Delete('url/:uid')
+  @UseGuards(AuthGuard)
+  remove(@Param('uid', UrlExistsPipe) url: Url) {
+    return this.urlService.remove(url.id)
+  }
+}
+```
+
+Nice! We'll applied the auth guard to each method except the `findOne()` method.
+
 ## Unit tests
 
 A unit test is an automation you have in your code that verifies a small piece of behavior.
@@ -2143,7 +2379,7 @@ describe(`remove`, () => {
 
 The tests should be self-explanatory, so I won't go into detail on them. Check out the video tutorial if you'd like more of an explainer.
 
-The final unit test we should add is for the custom `UrlExistsPipe` we added. Here's a reminder of the code:
+Another unit test we should add is for the custom `UrlExistsPipe` we added. Here's a reminder of the code:
 
 ```ts
 import { PipeTransform, Injectable, NotFoundException } from '@nestjs/common'
@@ -2224,6 +2460,143 @@ describe('UrlService', () => {
   })
 })
 ```
+
+The final unit test to add is for the `AuthGuard` we added. Here's a reminder of the code:
+
+```ts
+import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { Request } from 'express'
+import { Observable } from 'rxjs'
+
+@Injectable()
+export class AuthGuard implements CanActivate {
+  private apiKey: string
+  constructor(private readonly configService: ConfigService) {
+    this.apiKey = this.configService.getOrThrow(`apiKey`)
+  }
+  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    const request = context.switchToHttp().getRequest()
+    const key = this.extractApiKey(request)
+    if (key !== this.apiKey) {
+      throw new UnauthorizedException()
+    }
+    return true
+  }
+
+  private extractApiKey(request: Request) {
+    const key = request.headers[`x-api-key`]
+    if (!key) return
+    return key
+  }
+}
+```
+
+As a reminder, this is a guard that's used as a validation layer to check if the request has the correct API key.
+
+Because this auth guard injects the config service, it makes the unit test a little more complex.
+
+Using NestJS' Test class, we can import the `ConfigModule` and set a value for `apiKey` directly. Open up the `auth-guard.spec.ts` file and update it to the following:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { AuthGuard } from './auth.guard'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+
+describe('AuthGuard', () => {
+  let configService: ConfigService
+  let authGuard: AuthGuard
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              apiKey: 'my-api-key',
+            }),
+          ],
+        }),
+      ],
+    }).compile()
+
+    configService = module.get(ConfigService)
+    authGuard = new AuthGuard(configService)
+  })
+  it('should be defined', () => {
+    expect(authGuard).toBeDefined()
+  })
+})
+```
+
+Because the AuthGuard requires the configService as a dependency, we've created a module and imported the `ConfigModule` so we can set a value for `apiKey` directly. We then use the `ConfigService` to get the value and pass it into the `AuthGuard` constructor.
+
+We can now write some tests for the auth guard. Specifically, let's test:
+
+- if the request has the correct API key, the guard should return true
+- if the request does not include an API key, the guard should throw an UnauthorizedException
+- if the request does not have the correct API key, the guard should throw an UnauthorizedException
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { AuthGuard } from './auth.guard'
+import { ConfigModule, ConfigService } from '@nestjs/config'
+import { createMock } from '@golevelup/ts-jest'
+import { ExecutionContext, UnauthorizedException } from '@nestjs/common'
+
+describe('AuthGuard', () => {
+  // ...
+
+  it(`should return true when the API key is valid`, () => {
+    const mockExecutionContext = createMock<ExecutionContext>({
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: {
+            'x-api-key': 'my-api-key',
+          },
+        }),
+      }),
+    })
+    const result = authGuard.canActivate(mockExecutionContext)
+
+    expect(result).toBe(true)
+  })
+
+  it(`should return error when the API key is invalid`, () => {
+    const mockExecutionContext = createMock<ExecutionContext>({
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: {
+            'x-api-key': 'invalid',
+          },
+        }),
+      }),
+    })
+    const result = () => authGuard.canActivate(mockExecutionContext)
+
+    expect(result).toThrowError(UnauthorizedException)
+  })
+
+  it(`should return error when the API header does not exist`, () => {
+    const mockExecutionContext = createMock<ExecutionContext>({
+      switchToHttp: () => ({
+        getRequest: () => ({
+          headers: {},
+        }),
+      }),
+    })
+    const result = () => authGuard.canActivate(mockExecutionContext)
+
+    expect(result).toThrowError(UnauthorizedException)
+  })
+})
+```
+
+The `canActivate` method requires an `ExecutionContext` object as the argument. This is attached to the incoming request, so how can we mock this in the tests?
+
+We've leveraged the `createMock` method from the `@golevelup/ts-jest` package to create a mock of the `ExecutionContext` class. This allows us to mock the `switchToHttp()` method and return a mock of the `Request` class. This allows us to mock the `getRequest()` method and return a mock of the `headers` object.
+
+That's it! Nice work.
 
 ## Integration testing
 
@@ -2541,136 +2914,6 @@ describe(`remove`, () => {
 
 Nice work! That's our integration tests done.
 
-## API key authentication
-
-Before moving onto E2E testing, let's add an authentication layer to the application.
-
-As mentioned at the start of this tutorial, this project is an internal tool for a startup to manage short URLs. So we want to make sure that the API is protected from public use.
-
-We're going to use API key authentication. This means that each request to the API will need to include an API key in the request headers. If the API key is not present or is invalid, the request will be rejected.
-
-To implement this, we'll use [NestJS Guards](https://docs.nestjs.com/guards).
-
-In NestJS, a guard is a class with a single responsibility: determining whether a given request is allowed to proceed to its route handler or not.
-
-It's called early in the NestJS request lifecycle, before the route handler is called. If the guard returns `true`, the request is allowed to proceed to the route handler. If the guard returns `false`, the request is rejected and the route handler is not called.
-
-Let's use the Nest CLI to create a guard in the project:
-
-```bash
-npx nest generate guard auth
-```
-
-This will create a new file called `auth.guard.ts` in a new `/auth` directory. Here's the code:
-
-```ts
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
-import { Observable } from 'rxjs'
-
-@Injectable()
-export class AuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
-    return true
-  }
-}
-```
-
-It also added a unit testing file, which we'll get to later on.
-
-Before adding any logic to the guard, let's implement it in the `UrlController` like this:
-
-```ts
-// ... imports
-
-@Controller()
-@UseGuards(AuthGuard) // <-- add this line
-export class UrlController {
-  // ... controller methods
-}
-```
-
-This applies the guard to all the controller methods. Let's also update the guard to always return `false` so we can see the guard in action:
-
-```ts
-import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common'
-import { Observable } from 'rxjs'
-
-@Injectable()
-export class AuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
-    return false
-  }
-}
-```
-
-Now if you try to make a request to the API, you'll see the request is rejected with a `403 Forbidden` response:
-
-```bash
-curl -X GET http://localhost:3000/urls
-```
-
-```json
-{
-  "statusCode": 403,
-  "message": "Forbidden resource",
-  "error": "Forbidden"
-}
-```
-
-Let's update the guard to check if the API key is present in the request headers. If it is AND matches `SECRET`, we'll allow the request to proceed. If it's not, we'll throw a specific `UnauthorizedException` error:
-
-```ts
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common'
-import { Request } from 'express'
-import { Observable } from 'rxjs'
-
-@Injectable()
-export class AuthGuard implements CanActivate {
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
-    const request = context.switchToHttp().getRequest()
-    const key = this.extractApiKey(request)
-    if (key !== `SECRET`) {
-      throw new UnauthorizedException()
-    }
-    return true
-  }
-
-  private extractApiKey(request: Request) {
-    const key = request.headers[`x-api-key`]
-    if (!key) return
-    return key
-  }
-}
-```
-
-If you try the same request as before:
-
-```bash
-curl -X GET http://localhost:3000/urls
-```
-
-You should now see a `401 Unauthorized` response:
-
-```json
-{
-  "statusCode": 401,
-  "message": "Unauthorized"
-}
-```
-
-Update your request to include the API key in the request headers and try the request again, this time it should succeed!
-
-There's a couple more updates we need to make:
-
-1. We've hard-coded in the string `SECRET` into the guard which isn't really best practice. Let's update this to use an environment variable instead.
-2. The @Get(':uid') endpoint should be public, so we need to exclude this from the guard.
-
-To update the guard to get the API key from an environment variable, we'll use the `ConfigService`:
-
-```ts
-
-```
-
 ## E2E testing
 
 Let's now add some end-to-end tests.
@@ -2684,11 +2927,14 @@ So what's left to test? Well, we haven't tested the API endpoints. We've tested 
 
 This is where end-to-end testing comes in.
 
-End to end tests are also useful for making sure the validation layers are working correctly. We have a `UrlExistsPipe` as well as some DTOs, so it's good to test that these are working correctly.
+End to end tests are great for:
+
+- testing the validation layers are working correctly (we have a `UrlExistsPipe` as well as some DTOs, so it's good to test that these are working correctly)
+- testing the response of the API endpoints (i.e. the HTTP response code and response body) are what we expect
 
 ☝️ You might be thinking - if we add unit tests to the `UrlController`, won't that cover the same tests as the end-to-end tests? Well, the controller methods won't have access to the validation layers, so it's good to have end-to-end tests to test the validation layers. Also, the controller methods just call the respective service methods (which we've already added tests for).
 
-With the e2e tests, we want to test the HTTP response of the API endpoints. We want to test that the endpoints return the correct status code and response body. We're not going to data is correctly persisted in the database or the service methods logic as we've already done that in the integration tests and unit tests.
+With the e2e tests, we want to test the HTTP response of the API endpoints. We want to test that the endpoints return the correct status code and response body. We're not going to test that the data is correctly persisted in the database or the service methods logic as we've already done that in the integration tests and unit tests.
 
 If you open up the `app.e2e-spec.ts` file in the `/test` directory, you'll see a test that's included in the starter repo:
 
@@ -2706,7 +2952,27 @@ describe('AppController (e2e)', () => {
 Let's add a new `describe` block for the `UrlController` and add some tests for the `POST /url` endpoint:
 
 ```ts
+import * as request from 'supertest'
+import { server } from './setup'
 
+// ...
+
+describe(`UrlController (e2e)`, () => {
+  describe(`POST /url`, () => {
+    it(`should create a URL`, () => {
+      return request(server)
+        .post(`/url`)
+        .send({ title: 'Google', redirect: 'https://google.com' })
+        .expect(201)
+        .expect((res) => {
+          const { data } = res.body
+          expect(data.title).toEqual('Google')
+          expect(data.redirect).toEqual('https://google.com')
+          expect(data.description).toBeNull()
+        })
+    })
+  })
+})
 ```
 
 ## Deployment
