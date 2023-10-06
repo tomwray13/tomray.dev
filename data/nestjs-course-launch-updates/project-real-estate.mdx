@@ -697,6 +697,64 @@ export class ListingController {
 }
 ```
 
+Nice work! Let's add some unit tests to make sure the validation is working as expected.
+
+Let's test the following scenarios:
+
+- More files than the max file count should throw a `BadRequestException`
+- Files under the max file count should return the files
+- Files equal to the max file count should return the files
+
+In the same directory as the `max-file-count.pipe.ts` file, add a new file called `max-file-count.pipe.spec.ts` and add the respective tests:
+
+```ts
+import { BadRequestException } from '@nestjs/common'
+import { MaxFileCountValidationPipe } from './max-file-count.pipe'
+
+describe(`MaxFileCountPipe`, () => {
+  let maxFileCountPipe: MaxFileCountValidationPipe
+
+  beforeEach(async () => {
+    maxFileCountPipe = new MaxFileCountValidationPipe(2)
+  })
+
+  it(`should throw an exception if number of files is greater than the max allowed`, () => {
+    // Arrange
+    const file = {} as Express.Multer.File
+
+    // Act
+    const result = () => maxFileCountPipe.transform([file, file, file])
+
+    // Assert
+    expect(result).toThrow(BadRequestException)
+  })
+
+  it(`should return files if count less than the max allowed`, () => {
+    // Arrange
+    const file = {} as Express.Multer.File
+    const payload = [file]
+
+    // Act
+    const result = maxFileCountPipe.transform(payload)
+
+    // Assert
+    expect(result).toEqual(payload)
+  })
+
+  it(`should return files if count equal to max allowed`, () => {
+    // Arrange
+    const file = {} as Express.Multer.File
+    const payload = [file, file]
+
+    // Act
+    const result = maxFileCountPipe.transform(payload)
+
+    // Assert
+    expect(result).toEqual(payload)
+  })
+})
+```
+
 With some validation setup on the incoming attached files, let's now dive into the queue set up!
 
 ## Set up the Bull Queue
@@ -1477,6 +1535,56 @@ export class ListingConsumer extends BaseConsumer {
 }
 ```
 
+Before continuing, let's add a couple of unit tests for the 2 new methods we added to the `FileService`.
+
+We want to test:
+
+- `bufferToBase64()` - that it converts a Buffer to a base64 string
+- `base64ToBuffer()` - that it converts a base64 string to a Buffer
+
+You should already have a `file.service.spec.ts` file (generated when using the Nest CLI earlier). Let's update it to test these 2 methods:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { FileService } from './file.service'
+
+describe('FileService', () => {
+  let service: FileService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [FileService],
+    }).compile()
+
+    service = module.get<FileService>(FileService)
+  })
+
+  it('should be defined', () => {
+    expect(service).toBeDefined()
+  })
+
+  describe(`bufferToBase64`, () => {
+    it(`should convert a buffer to a base64 string`, () => {
+      const buffer = Buffer.from(`Hello, World!`)
+      const base64 = `SGVsbG8sIFdvcmxkIQ==` // Base64 encoded string of 'Hello, World!'
+
+      const result = service.bufferToBase64(buffer)
+      expect(result).toBe(base64)
+    })
+  })
+
+  describe(`base64ToBuffer`, () => {
+    it(`should convert a base64 string to a buffer`, () => {
+      const base64 = `SGVsbG8sIFdvcmxkIQ==` // Base64 encoded string of 'Hello, World!'
+      const buffer = Buffer.from(`Hello, World!`)
+
+      const result = service.base64ToBuffer(base64)
+      expect(result).toEqual(buffer)
+    })
+  })
+})
+```
+
 Let's now add the logic to upload the file to Google Cloud Storage.
 
 Let's next install the Google Cloud Storage package:
@@ -1554,6 +1662,9 @@ export default () => ({
     privateKey: process.env.GCS_PRIVATE_KEY
       ? process.env.GCS_PRIVATE_KEY.replace(/\\n/g, '\n')
       : ``,
+    buckets: {
+      listingImages: process.env.GCS_BUCKET_LISTING_IMAGES,
+    },
   },
 })
 ```
@@ -1563,6 +1674,7 @@ In your env file, add the respective values for `GCS_PROJECT_ID`, `GCS_CLIENT_EM
 - `GCS_PROJECT_ID` is the project ID of your Google Cloud project
 - `GCS_CLIENT_EMAIL` is the client email of the service account you created
 - `GCS_PRIVATE_KEY` is the private key of the service account you created. You can find this in JSON file you downloaded under the `private_key` key
+- `GCS_BUCKET_LISTING_IMAGES` is the name of the bucket you created earlier
 
 Let's now create a `GoogleCloudService` module and service to handle the file uploads.
 
@@ -1579,7 +1691,7 @@ import { GoogleCloudService } from './google-cloud.service'
 
 @Module({
   providers: [GoogleCloudService],
-  exports: [GoogleCloudService],
+  exports: [],
 })
 export class GoogleCloudModule {}
 ```
@@ -1594,7 +1706,7 @@ import { ConfigService } from '@nestjs/config'
 @Injectable()
 export class GoogleCloudService {
   private storage: Storage
-  private bucket: string
+
   constructor(private readonly configService: ConfigService) {
     this.storage = new Storage({
       projectId: this.configService.getOrThrow(`googleCloud.projectId`),
@@ -1603,47 +1715,50 @@ export class GoogleCloudService {
         private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
       },
     })
+  }
 
-    this.bucket = `bucketname` // <-- add your bucket name here
+  getBucket(bucketId: string) {
+    return this.storage.bucket(bucketId)
   }
 }
 ```
 
 What we've done here is:
 
-- Imported the `Storage` class from the `@google-cloud/storage` package
 - Injected the `ConfigService` so we can access the env variables
-- Created a new instance of the `Storage` class, passing in the relevant credentials. The private `storage` property is now an instance of the `Storage` class, which we can use to interact with Google Cloud Storage
+- Created a new instance of the `Storage` class assigned to the private storage property, passing in the relevant credentials. The private `storage` property is now an instance of the `Storage` class, which we can use to interact with Google Cloud Storage.
+- Created a `getBucket` method which returns a bucket instance. This is useful as we can now inject the `GoogleCloudService` into other services and use the `getBucket` method to get a bucket instance. This also easily allows us to mock the `getBucket` method in unit tests.
 
-It's also worth noting that you'll need to update your bucket name to what you called it when setting it up.
+Let's now create a new service to handle the file uploads to Google Cloud.
 
-Let's now add an `uploadFile` method to upload a file to Google Cloud Storage:
+You might be thinking - why not just add a method for uploading files to the `GoogleCloudService` we just created?
+
+In order to upload files, we will need access to the `Storage` instance, meaning it's a dependency. For better testing and separation of concerns, I'm going to keep the `GoogleCloudService` as a wrapper around the `Storage` class and create a new service for handling the file uploads:
+
+```bash
+npx nest generate service services/google-cloud/storage
+```
+
+And in this `StorageService`, we can inject the `GoogleCloudService` and use it to upload files:
 
 ```ts
-import { Storage } from '@google-cloud/storage'
 import { Injectable } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
+import { GoogleCloudService } from '../google-cloud.service'
 
 @Injectable()
-export class GoogleCloudService {
-  private storage: Storage
-  private bucket: string
-  constructor(private readonly configService: ConfigService) {
-    this.storage = new Storage({
-      projectId: this.configService.getOrThrow(`googleCloud.projectId`),
-      credentials: {
-        client_email: this.configService.getOrThrow(`googleCloud.clientEmail`),
-        private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
+export class StorageService {
+  private bucket = `bucket-name` // <-- add your bucket name here - TODO: update to get from environment variables
+  constructor(private readonly googleCloudService: GoogleCloudService) {}
+
+  async uploadFile(fileBuffer: Buffer, fileMimeType: string) {
+    const bucket = this.googleCloudService.getBucket(this.bucket)
+    const fileName = `randomFileName` // TODO: generate random filename
+    const file = bucket.file(`${fileName}`)
+    await file.save(fileBuffer, {
+      metadata: {
+        contentType: fileMimeType,
       },
     })
-
-    this.bucket = `bucketname` // <-- add your bucket name here
-  }
-
-  async uploadFile(fileBuffer: Buffer) {
-    const bucket = this.storage.bucket(this.bucket)
-    const file = bucket.file(`randomfilename.jpg`) // TODO: generate random filename
-    await file.save(fileBuffer)
     await file.makePublic()
     return file.publicUrl()
   }
@@ -1652,7 +1767,9 @@ export class GoogleCloudService {
 
 In the `uploadFile` method, we're interacting with the GCS bucket to save a file and make it public. We're then returning the public url of the file.
 
-You'll notice there's a TODO in the method - we need to generate a random filename for the file. This is because Google Cloud Storage requires a unique filename for each file. We also need to set the file content type to the mime type of the file - this is so that when we retrieve the file, the client knows how to render it.
+You'll notice there's a TODO in the method - we need to generate a random filename for the file. This is because Google Cloud Storage requires a unique filename for each file.
+
+There's also another TODO: right now we're using a default bucket name, but we should update this so our `uploadFile` method can accept a bucket name as an argument. This will allow us to upload files to different buckets which is typically what you'd want to do in a production application.
 
 For generating the unique filename, let's create a new service in the `/utilities` directory for generating UIDs, as this functionality might be useful in other places in the application.
 
@@ -1696,6 +1813,45 @@ import { UidService } from './uid/uid.service'
 export class UtilitiesModule {}
 ```
 
+Let's add some unit tests for the `UidService`. In the generated test file `uid.service.spec.ts`, let's add 2 tests:
+
+1. should return a UID of default length when no length is provided
+2. should return a UID of specified length
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { UidService } from './uid.service'
+
+describe(`UidService`, () => {
+  let service: UidService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [UidService],
+    }).compile()
+
+    service = module.get<UidService>(UidService)
+  })
+
+  it(`should be defined`, () => {
+    expect(service).toBeDefined()
+  })
+
+  it(`should return a UID of default length when no length is provided`, () => {
+    const uid = service.generate()
+    expect(typeof uid).toBe(`string`)
+    // Assuming default length is 11 for the uid library.
+    expect(uid.length).toBe(11)
+  })
+
+  it(`should return a UID of specified length`, () => {
+    const length = 5
+    const uid = service.generate(length)
+    expect(uid.length).toBe(length)
+  })
+})
+```
+
 Great! Let's now continue working on the `GoogleCloudService` to generate a random filename and set the content type.
 
 First update the `GoogleCloudModule` to import the `UtilitiesModule`:
@@ -1704,11 +1860,12 @@ First update the `GoogleCloudModule` to import the `UtilitiesModule`:
 import { Module } from '@nestjs/common'
 import { GoogleCloudService } from './google-cloud.service'
 import { UtilitiesModule } from '../../utilities/utilities.module'
+import { StorageService } from './storage/storage.service'
 
 @Module({
   imports: [UtilitiesModule], // <-- add this
-  providers: [GoogleCloudService],
-  exports: [GoogleCloudService],
+  providers: [GoogleCloudService, StorageService],
+  exports: [StorageService],
 })
 export class GoogleCloudModule {}
 ```
@@ -1716,32 +1873,20 @@ export class GoogleCloudModule {}
 Then let's import the `UidService` into the `GoogleCloudService` and use it to generate a unique filename:
 
 ```ts
-import { Storage } from '@google-cloud/storage'
 import { Injectable } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import { UidService } from '../../utilities/uid/uid.service'
+import { UidService } from '../../../utilities/uid/uid.service'
+import { GoogleCloudService } from '../google-cloud.service'
 
 @Injectable()
-export class GoogleCloudService {
-  private storage: Storage
-  private bucket: string
+export class StorageService {
+  private bucket = `bucket-name` // <-- add your bucket name here - TODO: update to get from environment variables
   constructor(
-    private readonly configService: ConfigService,
+    private readonly googleCloudService: GoogleCloudService,
     private readonly uidService: UidService
-  ) {
-    this.storage = new Storage({
-      projectId: this.configService.getOrThrow(`googleCloud.projectId`),
-      credentials: {
-        client_email: this.configService.getOrThrow(`googleCloud.clientEmail`),
-        private_key: this.configService.getOrThrow(`googleCloud.privateKey`),
-      },
-    })
-
-    this.bucket = `listings-83490834`
-  }
+  ) {}
 
   async uploadFile(fileBuffer: Buffer, fileMimeType: string) {
-    const bucket = this.storage.bucket(this.bucket)
+    const bucket = this.googleCloudService.getBucket(this.bucket)
     const fileName = this.uidService.generate()
     const file = bucket.file(`${fileName}`)
     await file.save(fileBuffer, {
@@ -1755,9 +1900,182 @@ export class GoogleCloudService {
 }
 ```
 
-I've also passed in the `fileMimeType` as an argument and set this as the content type of the file when saving.
+Let's now do the final update and enforce a bucket to be passed in when using the `uploadFile` method. To do this, we'll inject the configService to access the bucket value(s) as well as use a TypeScript literal type like this:
 
-Let's go back to the consumer and use this service to upload the file to Google Cloud Storage:
+```ts
+import { Injectable } from '@nestjs/common'
+import { UidService } from '../../../utilities/uid/uid.service'
+import { GoogleCloudService } from '../google-cloud.service'
+import { ConfigService } from '@nestjs/config'
+
+@Injectable()
+export class StorageService {
+  constructor(
+    private readonly googleCloudService: GoogleCloudService,
+    private readonly uidService: UidService,
+    private readonly configService: ConfigService
+  ) {}
+
+  async uploadFile(fileBuffer: Buffer, fileMimeType: string, bucketLabel: `listingImages`) {
+    const bucketId = this.configService.getOrThrow(`googleCloud.buckets.${bucketLabel}`)
+    const bucket = this.googleCloudService.getBucket(bucketId)
+    const fileName = this.uidService.generate()
+    const file = bucket.file(`${fileName}`)
+    await file.save(fileBuffer, {
+      metadata: {
+        contentType: fileMimeType,
+      },
+    })
+    await file.makePublic()
+    return file.publicUrl()
+  }
+}
+```
+
+Before proceeding, let's add some unit tests for the `uploadFile` method. In the generated `storage.service.spec.ts` file, you should have:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { StorageService } from './storage.service'
+
+describe('StorageService', () => {
+  let service: StorageService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [StorageService],
+    }).compile()
+
+    service = module.get<StorageService>(StorageService)
+  })
+
+  it('should be defined', () => {
+    expect(service).toBeDefined()
+  })
+})
+```
+
+If you run this test, it will fail due to missing dependencies. You can see in the `StorageService` that we're injecting 3 dependencies:
+
+- `GoogleCloudService`
+- `UidService`
+- `ConfigService`
+
+Let's first mock these and fix the dependency issue. We'll pass in a fake value for the bucket value using the ConfigModule and use the `@golevelup/ts-jest` package to mock the `GoogleCloudService` and `UidService`.
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { StorageService } from './storage.service';
+import { ConfigModule } from '@nestjs/config';
+import { createMock } from '@golevelup/ts-jest';
+
+describe('StorageService', () => {
+  let storageService: StorageService;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              googleCloud: {
+                buckets: {
+                  listingImages: `listing-images-bucket`,
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+      providers: [StorageService],
+    })
+      .useMocker(createMock)
+      .compile();
+
+    storageService = module.get<StorageService>(StorageService);
+  });
+
+  it('should be defined', () => {
+    expect(storageService).toBeDefined();
+  });
+```
+
+Let's now add a unit test for this method - we want to test the end result of the method - it returns a public url for the file:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { StorageService } from './storage.service'
+import { ConfigModule } from '@nestjs/config'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { UidService } from '../../../utilities/uid/uid.service'
+import { GoogleCloudService } from '../google-cloud.service'
+
+describe('StorageService', () => {
+  let storageService: StorageService
+  let uidService: DeepMocked<UidService>
+  let googleCloud: DeepMocked<GoogleCloudService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({
+          load: [
+            () => ({
+              googleCloud: {
+                buckets: {
+                  listingImages: `listing-images-bucket`,
+                },
+              },
+            }),
+          ],
+        }),
+      ],
+      providers: [StorageService],
+    })
+      .useMocker(createMock)
+      .compile()
+
+    storageService = module.get<StorageService>(StorageService)
+    uidService = module.get(UidService)
+    googleCloud = module.get(GoogleCloudService)
+  })
+
+  it('should be defined', () => {
+    expect(storageService).toBeDefined()
+  })
+
+  it(`should return a public url`, async () => {
+    const mockBuffer = Buffer.from(`test`)
+    const mockMimeType = `image/png`
+    const mockBucketId = `listingImages`
+    const returnedPublicUrl = `https://storage.googleapis.com/listing-images-bucket/random-uid`
+
+    uidService.generate.mockReturnValue(`random-uid`)
+    const bucket = googleCloud.getBucket(`listing-images-bucket`)
+    bucket.file.mockReturnValue({
+      save: jest.fn(),
+      makePublic: jest.fn(),
+      publicUrl: jest.fn().mockReturnValue(returnedPublicUrl),
+    } as any)
+
+    const publicUrl = await storageService.uploadFile(mockBuffer, mockMimeType, mockBucketId)
+    expect(publicUrl).toEqual(returnedPublicUrl)
+  })
+})
+```
+
+There's quite a bit going on here, so let's break it down:
+
+- We're mocking the `UidService` and `GoogleCloudService` using the `@golevelup/ts-jest` package
+- We're mocking the `generate` method of the `UidService` to return a static value
+- We're mocking the `getBucket` method of the `GoogleCloudService` to return a mock bucket instance
+- We're mocking the `file` method of the bucket instance to return a mock file instance
+- We're mocking the `save`, `makePublic` and `publicUrl` methods of the file instance to return a mock public url
+- We're then passing in some values to the `uploadFile` method and asserting that the public url returned is the same as the mock public url
+
+Due to the amount of mocking happening (and the test brittleness that this results in), the value of this unit test is questionable. I've included it to show you an example with quite a bit of mocking.
+
+Moving on, let's go back to the consumer and use this service to upload the file to Google Cloud Storage:
 
 ```ts
 import { OnQueueFailed, Process, Processor } from '@nestjs/bull'
@@ -1766,7 +2084,7 @@ import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
 import { Logger } from '../../../core/logger/logger.service'
 import { BaseConsumer } from '../../../core/queue/base.consumer'
 import { FileService } from '../../../utilities/file/file.service'
-import { GoogleCloudService } from '../../../services/google-cloud/google-cloud.service'
+import { StorageService } from '../../../services/google-cloud/storage/storage.service'
 import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
 
 @Processor(LISTING_QUEUE)
@@ -1774,7 +2092,7 @@ export class ListingConsumer extends BaseConsumer {
   constructor(
     logger: Logger,
     private readonly fileService: FileService,
-    private readonly googleCloud: GoogleCloudService
+    private readonly googleCloudStorage: StorageService
   ) {
     super(logger)
   }
@@ -1783,7 +2101,7 @@ export class ListingConsumer extends BaseConsumer {
   async uploadListingImage(job: Job<UploadListingImageDto>) {
     const { base64File, mimeType } = job.data
     const buffer = this.fileService.base64ToBuffer(base64File)
-    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    const publicUrl = await this.googleCloudStorage.uploadFile(buffer, mimeType, `listingImages`)
     console.log(`publicUrl:`, publicUrl)
     // TODO: save publicUrl to database
     return job.data
@@ -1850,7 +2168,7 @@ import { LISTING_QUEUE } from '../../../core/queue/queue.constants'
 import { Logger } from '../../../core/logger/logger.service'
 import { BaseConsumer } from '../../../core/queue/base.consumer'
 import { FileService } from '../../../utilities/file/file.service'
-import { GoogleCloudService } from '../../../services/google-cloud/google-cloud.service'
+import { StorageService } from '../../../services/google-cloud/storage/storage.service'
 import { UploadListingImageDto } from '../dto/upload-listing-image.dto'
 import { DatabaseService } from '../../../database/database.service'
 
@@ -1859,7 +2177,7 @@ export class ListingConsumer extends BaseConsumer {
   constructor(
     logger: Logger,
     private readonly fileService: FileService,
-    private readonly googleCloud: GoogleCloudService,
+    private readonly googleCloudStorage: StorageService,
     private readonly databaseService: DatabaseService
   ) {
     super(logger)
@@ -1869,7 +2187,7 @@ export class ListingConsumer extends BaseConsumer {
   async uploadListingImage(job: Job<UploadListingImageDto>) {
     const { base64File, mimeType } = job.data
     const buffer = this.fileService.base64ToBuffer(base64File)
-    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    const publicUrl = await this.googleCloudStorage.uploadFile(buffer, mimeType, `listingImages`)
     return await this.databaseService.listingImage.create({
       data: {
         listingId: job.data.listingId,
@@ -1919,7 +2237,7 @@ export class ListingService {
   async uploadImage(data: UploadListingImageDto) {
     const { base64File, mimeType, listingId } = data
     const buffer = this.fileService.base64ToBuffer(base64File)
-    const publicUrl = await this.googleCloud.uploadFile(buffer, mimeType)
+    const publicUrl = await this.googleCloudStorage.uploadFile(buffer, mimeType, `listingImages`)
     return await this.databaseService.listingImage.create({
       data: {
         listingId: listingId,
@@ -1958,20 +2276,824 @@ export class ListingConsumer extends BaseConsumer {
 
 As you can see, keeping all the logic in the service layer is a good idea as it allows you to reuse the logic in multiple places.
 
-## Testing
+## Unit testing
 
-In order to upload files to Google Cloud Storage, you'll need:
+Let's write some unit, integration and end-to-end tests for the logic we've added.
 
-- A Google Cloud account and project ID
-- A Google Cloud Storage bucket
-- A service account with the relevant permissions to upload files to the bucket
+We've already added some unit tests for the various pipes and services we've created except for the `ListingService`. So let's add some unit tests for the `ListingService`.
 
-- Upload buffer to GCS
-- Store url in database
+If it doesn't exist, add a `listing.service.spec.ts` file in the `listing` directory and add the following:
 
-## Setting up Bull Arena
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { ListingService } from './listing.service'
 
-- remove Bull arena from http logging
+describe(`ListingService`, () => {
+  let listingService: ListingService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [ListingService],
+    }).compile()
+
+    listingService = module.get<ListingService>(ListingService)
+  })
+
+  it('should be defined', () => {
+    expect(listingService).toBeDefined()
+  })
+})
+```
+
+The `should be defined` test fail as the `ListingService` has the following dependencies:
+
+- `DatabaseService`
+- `ListingProducer`
+- `FileService`
+- `GoogleCloudService`
+
+Let's update the module in the test to automatically mock these dependencies using `createMock` from the `@golevelup/ts-jest` package:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { ListingService } from './listing.service'
+import { createMock } from '@golevelup/ts-jest'
+
+describe(`ListingService`, () => {
+  let listingService: ListingService
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [ListingService],
+    })
+      .useMocker(createMock) // <-- add this
+      .compile()
+
+    listingService = module.get<ListingService>(ListingService)
+  })
+
+  it('should be defined', () => {
+    expect(listingService).toBeDefined()
+  })
+})
+```
+
+The test should be passing now as the dependencies are mocked.
+
+Let's consider what we want to unit test for the `create` and `uploadImage` in the `ListingService`. For unit tests, we'll be focused on the end result of the method, not the implementation details.
+
+For the `create` method, we want to test that the method returns the created listing from the data passed into the DTO. We'll need to mock the `DatabaseService` to return a mock listing:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { ListingService } from './listing.service'
+import { createMock } from '@golevelup/ts-jest'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+
+describe(`ListingService`, () => {
+  let listingService: ListingService
+  let databaseService: DeepMockProxy<DatabaseService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ListingService,
+        {
+          provide: DatabaseService,
+          useValue: mockDeep<DatabaseService>(),
+        },
+      ],
+    })
+      .useMocker(createMock)
+      .compile()
+
+    listingService = module.get<ListingService>(ListingService)
+    databaseService = module.get(DatabaseService)
+  })
+
+  it('should be defined', () => {
+    expect(listingService).toBeDefined()
+  })
+
+  describe(`create`, () => {
+    it(`should return the created listing`, async () => {
+      // Arrange
+      const payload = {
+        label: `Spacious Apartment in Downtown`,
+        addressLine1: `123 Main St`,
+        addressLine2: `Apt 4B`,
+        addressZipcode: `62704`,
+        addressCity: `Springfield`,
+        addressState: `UN`,
+        price: 150000,
+        bathrooms: 2,
+        bedrooms: 3,
+        squareMeters: 120,
+      }
+      databaseService.listing.create.mockResolvedValueOnce({
+        ...payload,
+        id: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      // Act
+      const result = await listingService.create({
+        data: payload,
+        images: [],
+      })
+
+      // Assert
+      expect(result).toEqual({
+        ...payload,
+        id: 1,
+        createdAt: expect.any(Date),
+        updatedAt: expect.any(Date),
+      })
+    })
+  })
+})
+```
+
+The `DatabaseService` is an @Injectable class but it's also a Prisma Client instance. So we need to use the `mockDeep` method from the `jest-mock-extended` package to create a test double. This method takes in the class you want to mock and returns back a test double.
+
+For the `uploadImage` method, we want to test that the method returns the created listing image from the data passed into the DTO:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { ListingService } from './listing.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { DatabaseService } from '../../database/database.service'
+import { mockDeep, DeepMockProxy } from 'jest-mock-extended'
+import { StorageService } from '../../services/google-cloud/storage/storage.service'
+import { FileService } from '../../utilities/file/file.service'
+
+describe(`ListingService`, () => {
+  let listingService: ListingService
+  let databaseService: DeepMockProxy<DatabaseService>
+  let googleCloudStorage: DeepMocked<StorageService>
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        ListingService,
+        FileService,
+        {
+          provide: DatabaseService,
+          useValue: mockDeep<DatabaseService>(),
+        },
+      ],
+    })
+      .useMocker(createMock)
+      .compile()
+
+    listingService = module.get<ListingService>(ListingService)
+    databaseService = module.get(DatabaseService)
+    googleCloudStorage = module.get(StorageService)
+  })
+
+  // ...
+
+  describe(`uploadImage`, () => {
+    it(`should return the created listing image`, async () => {
+      // Arrange
+      const listingId = 1
+      const publicUrl = `https://storage.googleapis.com/listing-images-bucket/random-uid`
+      googleCloudStorage.uploadFile.mockResolvedValueOnce(publicUrl)
+      const mockResponse = {
+        id: 1,
+        listingId,
+        url: publicUrl,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+
+      databaseService.listingImage.create.mockResolvedValueOnce(mockResponse)
+
+      // Act
+      const result = await listingService.uploadImage({
+        listingId,
+        mimeType: `image/jpeg`,
+        base64File: `SGVsbG8sIFdvcmxkIQ==`, // random base
+      })
+
+      // Assert
+      expect(result).toEqual(mockResponse)
+    })
+  })
+})
+```
+
+Let's now get to integration tests.
+
+## Integration testing
+
+With our integration tests, we want to:
+
+- Test using real dependencies and real state
+- Test to make sure any side effects are working as expected
+- Test the end result of the method
+
+Typically, most (if not all) of your business logic is in the service layer. In this project, the `ListingService` is the service layer and where the business logic happens.
+
+Before diving in, you'll need to make sure the `.env.test` file is up-to-date.
+
+Otherwise, when your test setup runs, you'll get some errors due to missing environment variables.
+
+If you've been following along in this tutorial, you'll just need to add the Google Cloud environment variables. As explained later on, we'll actualy be mocking the Google Cloud Service in our integration tests, so you can just provide some test values in yout `.env.test` file:
+
+```bash
+# ...
+
+GCS_PROJECT_ID="test"
+GCS_CLIENT_EMAIL="test"
+GCS_PRIVATE_KEY="test"
+GCS_BUCKET_LISTING_IMAGES="test"
+```
+
+Let's write some integration tests for this service layer so the business logic is tested.
+
+In the `/listing` directory, add a new file called `listing.service.int-spec.ts` and add the following:
+
+```ts
+import { app } from '../../../test/setup'
+import { DatabaseService } from '../../database/database.service'
+import { ListingService } from './listing.service'
+
+describe(`ListingService Integration Tests`, () => {
+  let listingService: ListingService
+  let databaseService: DatabaseService
+
+  beforeAll(async () => {
+    listingService = app.get(ListingService)
+    databaseService = app.get(DatabaseService)
+  })
+
+  describe(`create`, () => {
+    it(`should create a listing`, async () => {
+      const payload = {
+        label: `Test Listing`,
+        addressLine1: `123 Test Street`,
+        addressLine2: `Apt 1`,
+        addressCity: `Test City`,
+        addressZipcode: `12345`,
+        addressState: `Test State`,
+        price: 1000,
+        bathrooms: 1,
+        bedrooms: 1,
+        squareMeters: 1000,
+      }
+      const listing = await listingService.create({
+        data: payload,
+        images: [],
+      })
+      const persistedListing = await databaseService.listing.findUnique({
+        where: {
+          id: listing.id,
+        },
+      })
+      expect(listing).toEqual(persistedListing)
+    })
+  })
+})
+```
+
+This test file leverages the setup we build in the NestJS starter repo to get access to the NestJS application instance by importing `app`. This instance uses real dependencies (it's own dedicated Docker compose setup). We then use this to get access to the `ListingService` and `DatabaseService` instances to:
+
+- Create a listing using the `ListingService`
+- Get the created listing from the database using the `DatabaseService`
+- Assert that the created listing is the same as the listing returned from the `ListingService`
+
+The payload object we used in the test we're going to need again, so let's create a utility function to generate this payload. In the `/listing` directory, add a new directory called `__tests__` and place a file called `test-utils.ts` inside:
+
+```ts
+export const generateCreateListingPayload = () => ({
+  label: `Test Listing`,
+  addressLine1: `123 Test Street`,
+  addressLine2: `Apt 1`,
+  addressCity: `Test City`,
+  addressZipcode: `12345`,
+  addressState: `Test State`,
+  price: 1000,
+  bathrooms: 1,
+  bedrooms: 1,
+  squareMeters: 1000,
+})
+```
+
+You can then update the test to use this function:
+
+```ts
+import { app } from '../../../test/setup';
+import { DatabaseService } from '../../database/database.service';
+import { generateCreateListingPayload } from './__tests__/test-utils';
+import { ListingService } from './listing.service';
+
+describe(`ListingService Integration Tests`, () => {
+  let listingService: ListingService;
+  let databaseService: DatabaseService;
+
+  beforeAll(async () => {
+    listingService = app.get(ListingService);
+    databaseService = app.get(DatabaseService);
+  });
+
+  describe(`create`, () => {
+    it(`should create a listing`, async () => {
+      const payload = generateCreateListingPayload();
+      const listing = await listingService.create({
+        data: payload,
+        images: [],
+      });
+      const persistedListing = await databaseService.listing.findUnique({
+        where: {
+          id: listing.id,
+        },
+      });
+      expect(listing).toEqual(persistedListing);
+    });
+});
+
+```
+
+The test we just added for the `create()` method had no images - let's add another test for the `create()` method with images.
+
+Now it's worth mentioning the Google Cloud Service - should we use the real Google Cloud Service in our integration tests or mock it?
+
+Typically, when interacting with 3rd party (network based) APIs, it's generally considered best practice to mock them instead of using the real API. Here are some reasons why:
+
+- Cost: Every upload or other operation on GCS might incur costs.
+- Reliability: Your tests could fail if there are any issues with GCS or network connectivity at the time of running the tests.
+- Cleanup and Side Effects: As you mentioned, if you are uploading real files, you'd need to handle deleting them afterward, making sure you don't accidentally delete something important or leave orphaned data.
+
+So let's update our testing set up so all integration and e2e tests use a mocked Google Cloud Service.
+
+Open up the `/test/setup.ts` file and let's provide a mock Storage Service:
+
+```ts
+import { HttpServer, INestApplication, ValidationPipe } from '@nestjs/common'
+import { Test, TestingModule } from '@nestjs/testing'
+import { AppModule } from '../src/app.module'
+import { CacheService } from '../src/core/cache/cache.service'
+import { DatabaseService } from '../src/database/database.service'
+import { StorageService } from '../src/services/google-cloud/storage/storage.service'
+import { createMock } from '@golevelup/ts-jest'
+
+let app: INestApplication
+let server: HttpServer
+let moduleFixture: TestingModule
+let cache: CacheService
+let database: DatabaseService
+let googleCloudStorage: StorageService
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+    providers: [
+      {
+        provide: StorageService,
+        useValue: createMock<StorageService>(),
+      },
+    ],
+  }).compile()
+
+  app = moduleFixture.createNestApplication()
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }))
+
+  cache = moduleFixture.get<CacheService>(CacheService)
+  database = moduleFixture.get<DatabaseService>(DatabaseService)
+
+  // google cloud mock
+  googleCloudStorage = moduleFixture.get(StorageService)
+  const mockUrl = `https://storage.googleapis.com/bucket/random-uid`
+  googleCloudStorage.uploadFile = jest.fn().mockResolvedValue(mockUrl)
+
+  await app.init()
+  server = app.getHttpServer()
+})
+
+// ...
+```
+
+Here, we've used the `createMock` method from the `@golevelup/ts-jest` package to create a mock `StorageService` and then used the `useValue` property to provide this mock to the module.
+
+We've then used the `mockResolvedValue` method to mock the `uploadFile` method to return a mock url each time it's called.
+
+Let's now go back to the integration test file and add a test for the `create()` method with images.
+
+Let's use some real images in the test, so inside the `__test__` directory we made earlier, add a new directory called `images` and place 3 images inside (any images will do).
+
+Then add the following test:
+
+```ts
+import { join } from 'path'
+import { app } from '../../../test/setup'
+import { DatabaseService } from '../../database/database.service'
+import { generateCreateListingPayload } from './__tests__/test-utils'
+import { ListingService } from './listing.service'
+import { readFileSync } from 'fs'
+
+describe(`ListingService Integration Tests`, () => {
+  let listingService: ListingService
+  let databaseService: DatabaseService
+
+  beforeAll(async () => {
+    listingService = app.get(ListingService)
+    databaseService = app.get(DatabaseService)
+  })
+
+  describe(`create`, () => {
+    // ...
+
+    it(`should create a listing with images`, async () => {
+      const payload = generateCreateListingPayload()
+
+      // grab a local static test image from the __tests__/images folder
+      const imagePath = join(__dirname, `./__tests__/images/image_1.jpg`)
+      const imageBuffer = readFileSync(imagePath)
+      const image = {
+        mimetype: `image/jpeg`,
+        buffer: imageBuffer,
+      } as Express.Multer.File
+
+      const listing = await listingService.create({
+        data: payload,
+        images: [image],
+      })
+
+      const persistedListing = await databaseService.listing.findUnique({
+        where: {
+          id: listing.id,
+        },
+      })
+
+      expect(listing).toEqual(persistedListing)
+    })
+  })
+})
+```
+
+This test is similar to the previous test except we're passing in an image to the `create()` method. So we should update this test to assert that the listing has an image associated with it.
+
+The thing is, however, is that the file upload and association with the listing happens in the queue.
+
+Let's update our test to wait for the queue to finish processing the job before asserting that the listing has an image associated with it.
+
+To do this, we need to access the respective queue and wait for it to finish processing the job - let's update the `/test/setup.ts` file to do this:
+
+```ts
+import { HttpServer, INestApplication, ValidationPipe } from '@nestjs/common'
+import { Test, TestingModule } from '@nestjs/testing'
+import { AppModule } from '../src/app.module'
+import { CacheService } from '../src/core/cache/cache.service'
+import { DatabaseService } from '../src/database/database.service'
+import { StorageService } from '../src/services/google-cloud/storage/storage.service'
+import { DeepMocked, createMock } from '@golevelup/ts-jest'
+import { LISTING_QUEUE } from '../src/core/queue/queue.constants'
+import { Queue } from 'bull'
+
+let app: INestApplication
+let server: HttpServer
+let moduleFixture: TestingModule
+let cache: CacheService
+let database: DatabaseService
+let googleCloudStorage: DeepMocked<StorageService>
+let listingQueue: Queue // <-- add this
+
+beforeAll(async () => {
+  moduleFixture = await Test.createTestingModule({
+    imports: [AppModule],
+    providers: [
+      {
+        provide: StorageService,
+        useValue: createMock<StorageService>(),
+      },
+    ],
+  }).compile()
+
+  app = moduleFixture.createNestApplication()
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }))
+
+  cache = moduleFixture.get<CacheService>(CacheService)
+  database = moduleFixture.get<DatabaseService>(DatabaseService)
+  listingQueue = moduleFixture.get<Queue>(`BullQueue_${LISTING_QUEUE}`) // <-- get the queue instance using the LISTING_QUEUE constant
+
+  // ...
+})
+
+// ...
+
+export { app, server, listingQueue } // <-- include listingQueue in export
+```
+
+Let's now update the test to:
+
+- Wait until the queue has finished processing the job
+- Assert that the listing has an image associated with it and has stored the image record in the database
+
+```ts
+import { join } from 'path'
+import { app, listingQueue } from '../../../test/setup'
+import { DatabaseService } from '../../database/database.service'
+import { generateCreateListingPayload } from './__tests__/test-utils'
+import { ListingService } from './listing.service'
+import { readFileSync } from 'fs'
+
+describe(`ListingService Integration Tests`, () => {
+  let listingService: ListingService
+  let databaseService: DatabaseService
+
+  beforeAll(async () => {
+    listingService = app.get(ListingService)
+    databaseService = app.get(DatabaseService)
+  })
+
+  describe(`create`, () => {
+    // ...
+
+    it(`should create a listing with images`, async () => {
+      const payload = generateCreateListingPayload()
+
+      // grab a local static test image from the __tests__/images folder
+      const imagePath = join(__dirname, `./__tests__/images/image_1.jpg`)
+      const imageBuffer = readFileSync(imagePath)
+      const image = {
+        mimetype: `image/jpeg`,
+        buffer: imageBuffer,
+      } as Express.Multer.File
+
+      const listing = await listingService.create({
+        data: payload,
+        images: [image],
+      })
+
+      // wait for jobs to finish processing
+      let inProcessJobs = await listingQueue.getJobs([`active`])
+      while (inProcessJobs.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        inProcessJobs = await listingQueue.getJobs([`active`])
+      }
+
+      const persistedListing = await databaseService.listing.findUnique({
+        where: {
+          id: listing.id,
+        },
+      })
+      const persistedImages = await databaseService.listingImage.findMany({
+        where: {
+          listingId: listing.id,
+        },
+      })
+
+      expect(listing).toEqual(persistedListing)
+      expect(persistedImages.length).toBe(1)
+    })
+  })
+})
+```
+
+We've used the `getJobs` method from the `Queue` instance to get all the jobs that are currently in the `active` state. We then wait until there are no more jobs in the `active` state before asserting that the listing has an image associated with it and has stored the image record in the database.
+
+Run `pnpm test:e2e` in the terminal and you should see all the tests passing!
+
+In our `ListingService`, we also have a `uploadImage()` method - this method is called by the `ListingConsumer` when a job is processed which we've actualy covered in the test above by waiting for the queue to finish processing the job.
+
+So let's now move onto some end-to-end tests.
+
+## E2E testing
+
+Let's now add some end-to-end tests.
+
+With respect to testing, so far we've done:
+
+- some unit tests across the app for the pipes and services
+- some integration tests for the `ListingService` which tests the end result and also the side effects (i.e. the database).
+
+So what's left to test? Well, we haven't tested the API endpoint to create a listing. We've tested the service methods but we haven't tested the API endpoints that call those service methods.
+
+This is where end-to-end testing comes in.
+
+End to end tests are great for:
+
+- testing the validation layers are working correctly (i.e. the DTOs and pipes)
+- testing the response of the API endpoints (i.e. the HTTP response code and response body) are what we expect
+
+☝️ You might be thinking - if we add unit tests to the `ListingController`, won't that cover the same tests as the end-to-end tests? Well, the controller methods won't have access to the validation layers, so it's good to have end-to-end tests to test the validation layers. Also, the controller methods just call the respective service methods (which we've already added tests for).
+
+With the e2e tests, we want to test the HTTP response of the API endpoints. We want to test that the endpoints return the correct status code and response body. We're not going to test that the data is correctly persisted in the database or the service methods logic as we've already done that in the integration tests and unit tests.
+
+With all that said, let's consider what we want to test:
+
+- Test that the `POST /listing` endpoint returns a 201 status code and the created listing
+- Test that the `POST /listing` endpoint returns a 400 status code when the DTO payload is invalid
+- Test that the `POST /listing` endpoint returns a 400 status code when the file validation fails
+
+If you open up the `app.e2e-spec.ts` file in the `/test` directory, you'll see a test that's included in the starter repo:
+
+```ts
+import * as request from 'supertest'
+import { server } from './setup'
+
+describe('AppController (e2e)', () => {
+  it('/ (GET)', () => {
+    return request(server).get('/').expect(200).expect({ data: 'Hello World!' })
+  })
+})
+```
+
+Let's add a new `describe` block for the `ListingController` and let's add a 1st test to ensure a valid payload returns a 201 status code and the created listing:
+
+```ts
+import * as request from 'supertest'
+import { server } from './setup'
+import { join } from 'path'
+import { generateCreateListingPayload } from '../src/modules/listing/__tests__/test-utils'
+
+describe(`ListingController (e2e)`, () => {
+  describe(`POST /listing`, () => {
+    const {
+      label,
+      addressLine1,
+      addressLine2,
+      addressCity,
+      addressState,
+      addressZipcode,
+      price,
+      bathrooms,
+      bedrooms,
+      squareMeters,
+    } = generateCreateListingPayload()
+
+    it(`should return 201 and return created listing`, () => {
+      const imagePath = join(__dirname, `../src/modules/listing/__tests__/images/image_1.jpg`)
+      return request(server)
+        .post(`/listing`)
+        .field(`label`, label)
+        .field(`addressLine1`, addressLine1)
+        .field(`addressLine2`, addressLine2)
+        .field(`addressZipcode`, addressZipcode)
+        .field(`addressCity`, addressCity)
+        .field(`addressState`, addressState)
+        .field(`price`, price)
+        .field(`bathrooms`, bathrooms)
+        .field(`bedrooms`, bedrooms)
+        .field(`squareMeters`, squareMeters)
+        .attach(`images`, imagePath)
+        .expect(201)
+        .expect((res) => {
+          const { data } = res.body
+          expect(data.label).toEqual(label)
+          expect(data.addressLine1).toEqual(addressLine1)
+          expect(data.addressLine2).toEqual(addressLine2)
+          expect(data.addressCity).toEqual(addressCity)
+          expect(data.addressState).toEqual(addressState)
+          expect(data.addressZipcode).toEqual(addressZipcode)
+          expect(data.price).toEqual(price)
+          expect(data.bathrooms).toEqual(bathrooms)
+          expect(data.bedrooms).toEqual(bedrooms)
+          expect(data.squareMeters).toEqual(squareMeters)
+        })
+    })
+  })
+})
+```
+
+Let's next add a couple of examples to test that the `POST /listing` endpoint returns a 400 status code when the DTO payload is invalid:
+
+```ts
+import * as request from 'supertest'
+import { server } from './setup'
+import { join } from 'path'
+import { generateCreateListingPayload } from '../src/modules/listing/__tests__/test-utils'
+
+describe(`ListingController (e2e)`, () => {
+  describe(`POST /listing`, () => {
+    const {
+      label,
+      addressLine1,
+      addressLine2,
+      addressCity,
+      addressState,
+      addressZipcode,
+      price,
+      bathrooms,
+      bedrooms,
+      squareMeters,
+    } = generateCreateListingPayload()
+
+    // ...
+
+    it(`should return 400 when payload is missing`, () => {
+      return request(server).post(`/listing`).expect(400)
+    })
+
+    it(`should return 400 when a non-number is used for price`, () => {
+      const imagePath = join(__dirname, `../src/modules/listing/__tests__/images/image_1.jpg`)
+      return request(server)
+        .post(`/listing`)
+        .field(`label`, label)
+        .field(`addressLine1`, addressLine1)
+        .field(`addressLine2`, addressLine2)
+        .field(`addressZipcode`, addressZipcode)
+        .field(`addressCity`, addressCity)
+        .field(`addressState`, addressState)
+        .field(`price`, `non-number`)
+        .field(`bathrooms`, bathrooms)
+        .field(`bedrooms`, bedrooms)
+        .field(`squareMeters`, squareMeters)
+        .attach(`images`, imagePath)
+        .expect(400)
+    })
+  })
+})
+```
+
+And finally, let's do some testing for the file validation:
+
+```ts
+import * as request from 'supertest'
+import { server } from './setup'
+import { join } from 'path'
+import { generateCreateListingPayload } from '../src/modules/listing/__tests__/test-utils'
+
+describe(`ListingController (e2e)`, () => {
+  describe(`POST /listing`, () => {
+    const {
+      label,
+      addressLine1,
+      addressLine2,
+      addressCity,
+      addressState,
+      addressZipcode,
+      price,
+      bathrooms,
+      bedrooms,
+      squareMeters,
+    } = generateCreateListingPayload()
+
+    // ...
+
+    it(`should return 400 when images are not included`, () => {
+      return request(server)
+        .post(`/listing`)
+        .field(`label`, label)
+        .field(`addressLine1`, addressLine1)
+        .field(`addressLine2`, addressLine2)
+        .field(`addressZipcode`, addressZipcode)
+        .field(`addressCity`, addressCity)
+        .field(`addressState`, addressState)
+        .field(`price`, `non-number`)
+        .field(`bathrooms`, bathrooms)
+        .field(`bedrooms`, bedrooms)
+        .field(`squareMeters`, squareMeters)
+        .expect(400)
+    })
+
+    it(`should return 400 when more than 2 images attached`, () => {
+      const imagePath = join(__dirname, `../src/modules/listing/__tests__/images/image_1.jpg`)
+      return request(server)
+        .post(`/listing`)
+        .field(`label`, label)
+        .field(`addressLine1`, addressLine1)
+        .field(`addressLine2`, addressLine2)
+        .field(`addressZipcode`, addressZipcode)
+        .field(`addressCity`, addressCity)
+        .field(`addressState`, addressState)
+        .field(`price`, `non-number`)
+        .field(`bathrooms`, bathrooms)
+        .field(`bedrooms`, bedrooms)
+        .field(`squareMeters`, squareMeters)
+        .attach(`images`, imagePath)
+        .attach(`images`, imagePath)
+        .attach(`images`, imagePath)
+        .expect(400)
+    })
+
+    it(`should return 400 when a non png/jpg/jpeg file is uploaded`, () => {
+      const imagePath = join(__dirname, `../src/modules/listing/__tests__/test-utils.ts`)
+      return request(server)
+        .post(`/listing`)
+        .field(`label`, label)
+        .field(`addressLine1`, addressLine1)
+        .field(`addressLine2`, addressLine2)
+        .field(`addressZipcode`, addressZipcode)
+        .field(`addressCity`, addressCity)
+        .field(`addressState`, addressState)
+        .field(`price`, `non-number`)
+        .field(`bathrooms`, bathrooms)
+        .field(`bedrooms`, bedrooms)
+        .field(`squareMeters`, squareMeters)
+        .attach(`images`, imagePath)
+        .expect(400)
+    })
+  })
+})
+```
+
+Run `pnpm test:e2e` in the terminal and you should see all the tests passing!
+
+## Deployment
 
 ```
 
