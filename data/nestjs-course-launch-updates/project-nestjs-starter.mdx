@@ -2066,3 +2066,344 @@ You can see I've added a single job called `unit-tests` which has the following 
 - The checkout action is used to fetch your repository's code, making it available for subsequent steps in the workflow.
 - The build action points to a file (that we'll add below) that installs the dependencies in the repository
 - And then finally, the command `pnpm test` is used to run the unit tests
+
+## Monorepo set up
+
+There will be some projects ahead where we'll be using a monorepo set up.
+
+Let's update our existing set up to support this using pnpm workspaces.
+
+If you're coding along, create a new branch called `monorepo` and checkout to it:
+
+```shell
+git checkout -b monorepo
+```
+
+The monorepo will have an `apps` directory which will contain all the apps (NestJS app, NextJS app, etc), so let's create that now, including a directory for the NestJS app:
+
+```shell
+mkdir -p apps/backend
+```
+
+Now let's move all the files from the root of the project into the `backend` directory:
+
+```shell
+mv * .[^.]* ./apps/backend/
+```
+
+It's possible you might get some errors when running that command - if you do I would suggest moving them manually in your IDE.
+
+The .git directory will now be in the /backend directory, so let's move that back to the root of the project:
+
+```shell
+mv .git ../../
+```
+
+In the `package.json` file inside the `/backend` directory, update the name of the project to `backend`:
+
+```json:package.json
+{
+  "name": "backend",
+  // ...
+}
+```
+
+Back in the root of the project, create a new file called `pnpm-workspace.yaml` and add the following:
+
+```yml:pnpm-workspace.yaml
+packages:
+  - "apps/*"
+```
+
+This file tells pnpm that the `apps` directory contains all the apps in the monorepo.
+
+Then let's initialize in the root:
+
+```shell
+pnpm init
+```
+
+This will create a `package.json` in the root of the project.
+
+Also in the root, add a `.gitignore` file and add the following:
+
+```
+node_modules
+```
+
+pnpm adds a node_modules directory in the root of the project, so we want to git to ignore this.
+
+Why does pnpm add a node_modules directory in the root of the project? Well, it's because pnpm uses symlinks to link the dependencies in the apps to the dependencies in the root of the project. This means that if you have multiple apps in your monorepo, they can share the same dependencies, which saves disk space and speeds up installation times for local development.
+
+Inside the `main.ts` file from the existing NestJS app (now in the `apps/backend` directory), update the port to `4000`:
+
+```ts
+import { NestFactory } from '@nestjs/core'
+import { AppModule } from './app.module'
+import helmet from 'helmet'
+import { ValidationPipe } from '@nestjs/common/pipes'
+import { Logger } from './core/logger/logger.service'
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, { logger: new Logger() })
+  app.use(helmet())
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true }))
+  await app.listen(process.env.PORT || 4000) // <--- Update the port
+}
+bootstrap()
+```
+
+By default, NestJS (which we'll be setting up shortly) uses port 3000, which is the same as NextJS (which we'll be adding in the next step).
+
+So to prevent a port conflict in your local servers, simply change this to 4000 for now to listen to this port instead.
+
+### NextJS 13 set up
+
+Let's add a NextJS 13 application called `web`. You can call this whatever you like!
+
+Head back into the `apps/` directory and run:
+
+```
+pnpx create-next-app@latest
+```
+
+On installation, you'll get some prompts. Answer them as shown here:
+
+```bash
+What is your project named? # web (change to whatever you want)
+Would you like to use TypeScript with this project? # Yes
+Would you like to use ESLint with this project? # Yes
+Would you like to use Tailwind CSS with this project? Yes # Yes
+Would you like to use `src/` directory with this project? # No
+Use App Router (recommended)? # Yes
+Would you like to customize the default import alias? # No
+```
+
+Inside your `apps/` directory, you'll now have a new NextJS project (mines called `web/`)!
+
+You might be prompted to install some peer dependencies. You should install the respective peer dependencies as prompted.
+
+Let's double check the NextJS project is all working fine and spin up a local server:
+
+```bash
+cd /web
+pnpm dev
+```
+
+I got an error when running this:
+
+```bash
+TypeError: Cannot read properties of undefined (reading 'config')
+```
+
+This was an error due to the TailwindCSS setup with PostCSS.
+
+To fix this, I installed the latest version of Tailwind to the web project:
+
+```
+pnpm add tailwindcss@latest
+```
+
+Before running `pnpm dev`, delete the `.next` directory in the web project as this contains some cache.
+
+So we now have 2 apps in our monorepo, NestJS and NextJS!
+
+## Monorepo config updates and DX tips
+
+Both our NestJS app and NextJS app have a `tsconfig.json` file, so let's create a `tsconfig.json` file at the root of the monorepo so centralise some shared TypeScript config.
+
+Add the `tsconfig.json` file to the root of the monorepo:
+
+```bash
+touch tsconfig.json
+```
+
+Add the following. If you've used different names for your application directories, make sure they're used in the `paths` object. I've used `backend` and `web`:
+
+```json:tsconfig.json
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "incremental": true,
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "strictBindCallApply": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "paths": {
+      "@backend/*": ["./apps/backend/src/*"],
+      "@web/*": ["./apps/web/*"]
+    }
+  }
+}
+```
+
+Next, we need to update the `tsconfig.json` file in both applications to extend the `tsconfig.json` at the root of the project.
+
+First, update the NestJS tsconfig:
+
+```json:apps/backend/tsconfig.json
+{
+  "extends": "../../tsconfig.json", // Extend the config options from the root
+  "compilerOptions": {
+    // The following options are not required as they've been moved to the root tsconfig
+    // "baseUrl": "./",
+    // "emitDecoratorMetadata": true,
+    // "experimentalDecorators": true,
+    // "incremental": true,
+    // "skipLibCheck": true,
+    // "strictNullChecks": true,
+    // "noImplicitAny": true,
+    // "strictBindCallApply": true,
+    // "forceConsistentCasingInFileNames": true,
+    // "noFallthroughCasesInSwitch": true
+    "module": "commonjs",
+    "declaration": true,
+    "removeComments": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2021",
+    "sourceMap": true,
+    "outDir": "./dist"
+  }
+}
+
+
+```
+
+And then update the NextJS tsconfig:
+
+```json:apps/web/tsconfig.json
+{
+  "extends": "../../tsconfig.json", // Extend the config options from the root,
+  "compilerOptions": {
+    // The following options are not required as they've been moved to the root tsconfig
+    // "skipLibCheck": true,
+    // "incremental": true,
+    // "paths": {
+    //   "@/*": ["./*"]
+    // }
+    "target": "es5",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+
+
+```
+
+Okay! As we've changed the TypeScript compiler options for both applications, let's just spin up our local servers to ensure everything is working.
+
+Instead of changing the directory and having a new terminal tab for each application, we can define a single command at the root of the directory to spin up both applications at the same time. Here's how you do this:
+
+In the project root, open up the `package.json` file and add a new script called "dev":
+
+```json:package.json
+{
+  "name": "nextjs-nestjs-trpc",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+```
+
+This looks inside the `app/` directory for any scripts called `dev` and runs them in parallel.
+
+The NextJS project local dev server script is already `dev`, so we just need to update the NestJS local dev server script from `start:dev` to `dev`:
+
+```json:apps/backend/package.json
+{
+  "name": "server",
+  "version": "0.0.1",
+  "description": "",
+  "author": "",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "nest build",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "start": "nest start",
+    "dev": "pnpm docker:start && nest start --watch", // updated from start:dev to dev
+    // ...
+  },
+  // ...
+}
+```
+
+Now in the root of your directory, run the command:
+
+```
+pnpm dev
+```
+
+Both local servers should now spin up in parallel, confirming that the new script works and the TSconfig changes we made are also working 👍.
+
+One quick tip 💡.
+
+When installing npm packages, you'll want to install them in the respective application rather than the root of the project.
+
+This means you'll need to change the directory into the respective application each time you want to install a new package.
+
+This gets a little frustrating - but fear not - there's a better way!
+
+With pnpm you can make use of the `--filter` option.
+
+Imagine in the NestJS app you want to install the `@nestjs/config` package. In the root of your directory, you can run:
+
+```bash
+pnpm add @nestjs/config --filter=server
+```
+
+This is much simpler - no more switching between directories to install new packages.
+
+## Build & start scripts
+
+Let's add some build and start scripts for both applications in the root package.json.
+
+This will be helpful later when we deploy each project.
+
+In the root `package.json`, add the following scripts:
+
+```json
+{
+  "name": "nestjs-starter",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm run --parallel dev",
+    "build:backend": "pnpm --filter backend build",
+    "build:web": "pnpm --filter web build",
+    "start:backend": "pnpm --filter backend start:prod",
+    "start:web": "pnpm --filter web start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+```
+
+Nice work! We now have a monorepo set up with 2 applications, a NestJS for the backend heavy lifting and a NextJS app for the frontend.
