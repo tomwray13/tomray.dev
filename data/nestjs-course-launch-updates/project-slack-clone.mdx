@@ -1,0 +1,1618 @@
+---
+title: 'Slack clone'
+h1: Slack clone
+date: '2023-07-23'
+lastmod: '2023-07-23'
+draft: false
+summary: Slack clone
+images: ['/static/images/nestjs-cheat-sheet/banner.png']
+isHiddenFromSearch: false
+---
+
+Please make sure you've installed the pre-requisites before starting!
+
+## Intro
+
+We're going to build a Slack clone (using NextJS 13 for the web client and NestJS on the backend). If you've never used Slack before, it's a simple chat app that allows you to create channels and send messages to other users in realtime.
+
+Here are the topics and features we'll cover in this project:
+
+- Using a monorepo set up with pnpm workspaces
+- Setting up a WebSocket server in NestJS
+- Setting up a WebSocket client in NextJS
+- Add user signup & login (i.e. authentication, including Google OAuth)
+- Protecting HTTP and WebSocket server connections from unauthenticated users
+
+Ready? Let's go!
+
+## Installing and understanding the starter repo
+
+For this project, I've created a starter repo that you'll need to use to follow along in this project.
+
+Create an appropiately named directory on your machine and clone the starter repo:
+
+```bash
+git clone -b starter git@github.com:tomwray13/slack-clone.git
+```
+
+Let's follow the instructions in the README to get the app up and running. First install the dependencies:
+
+```bash
+pnpm install
+```
+
+Create an `.env` file for both the `backend` and `web` apps:
+
+```
+cp apps/backend/.env.example apps/backend/.env
+cp apps/web/.env.example apps/web/.env.local
+```
+
+To spin up both the backend and web apps, run the following command in the project root:
+
+```bash
+pnpm dev
+```
+
+This is powered by a `dev` script in the root `package.json` file:
+
+```json
+{
+  "name": "nestjs-starter",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "pnpm run --parallel dev" // <--- this is the script we're running
+    // ...
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
+```
+
+Once the script has finished running, you should be able to visit the app at `http://localhost:3000` and see a simple Slack clone!
+
+This course is focused on NestJS and backend oriented concepts rather than frontend, so that's why I've included the frontend in the starter repo.
+
+That being said, I'm going to use the rest of this section to explain the frontend code (using NextJS 13) as it's good context for the rest of the project.
+
+## Adding the database models and using real data
+
+Right now, the data fetched from the backend is hardcoded inside the `data` directory.
+
+Let's build out the database layer in the backend so that we can fetch the data from the database instead.
+
+The frontend is already set up to fetch data from the backend `channel` controller, so we just need to update the logic in the backend to fetch the data from the database instead.
+
+As you can see from the chat UI, we have 3 basic models:
+
+- `User` - a user of the app
+- `Channel` - a channel that users can send messages to
+- `Message` - a message that a user has sent to a channel
+
+There are a few relations we need to keep in mind too:
+
+- A user can have many messages
+- A channel can have many messages
+- A message can only belong to one channel
+- A message can only belong to one user
+
+Please note we won't be implementing 'private' channels in this project where only certain users can access a channel. We'll be keeping things simple and just having public channels that anyone can access.
+
+Let's start by adding these models into the Prisma schema:
+
+```json
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  firstName String
+  lastName  String
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+}
+
+model Channel {
+  id          Int       @id @default(autoincrement())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+}
+
+model Message {
+  id        Int       @id @default(autoincrement())
+  content   String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id])
+  userId    Int
+  channel   Channel   @relation(fields: [channelId], references: [id])
+  channelId Int
+}
+```
+
+As you can see, I've added to the existing `User` model and added the `Channel` and `Message` models.
+
+It should be pretty self explanatory what each model represents. The key thing that's worth noting is the relations between the models - I've implemented what we mentioned above:
+
+- A user can have many messages
+- A channel can have many messages
+- A message can only belong to one channel
+- A message can only belong to one user
+
+Whenever you make database schema changes, you need to run migrations to update the database. Let's do that now. You'll need to make sure in your terminal you're in the `/apps/backend` directory.
+
+```bash
+pnpm db:migrate:dev
+```
+
+Nice! Let's now add some data to our local database so that we can see some real data in the frontend.
+
+We can use Prisma Studio to do this. Prisma Studio is a GUI for interacting with your database. It's a great tool for development and debugging. Open it up by running this command:
+
+```bash
+pnpm db:studio
+```
+
+Add some example records for:
+
+- channels
+- users
+- messages
+
+Let's now update the service layer in the backend to fetch the data from the database instead of the hardcoded data.
+
+To do this, we'll need access to the `DatabaseService` which is a service included in the repo that gives us access to the Prisma client (it's inside the `/database` directory).
+
+Like any other service, we'll first import the respective `DatabaseModule` into the `ChannelModule` so that we can inject the `DatabaseService` into the `ChannelService`.
+
+```ts
+import { Module } from '@nestjs/common'
+import { ChannelService } from './channel.service'
+import { ChannelController } from './channel.controller'
+import { DatabaseModule } from '../../database/database.module'
+
+@Module({
+  imports: [DatabaseModule], // <--- add this
+  controllers: [ChannelController],
+  providers: [ChannelService],
+})
+export class ChannelModule {}
+```
+
+Let's now inject the `DatabaseService` into the `ChannelService` to get the relevant data from the database.
+
+Getting all the channels in the `findAll()` method is quite straightforward:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateChannelDto } from './dto/create-channel.dto'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class ChannelService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  // ...
+
+  async findAll() {
+    return await this.databaseService.channel.findMany()
+  }
+
+  // ...
+}
+```
+
+Let's now update the `findOne()` method to fetch the data from the database instead of the hardcoded data.
+
+It's worth noting if you review the current code that the data returned is in this format:
+
+- channel
+  -- messages
+  --- user
+
+So let's use Prisma's `include` option to fetch the data in this format from the database. Let's also make sure the messages are returned in ascending order of the creation date.
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { CreateChannelDto } from './dto/create-channel.dto'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class ChannelService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  // ...
+
+  async findOne(id: number) {
+    return await this.databaseService.channel.findUnique({
+      where: { id },
+      include: {
+        messages: {
+          orderBy: {
+            createdAt: 'asc',
+          },
+          include: {
+            user: true,
+          },
+        },
+      },
+    })
+  }
+}
+```
+
+We're now fetching the data from the database instead of the hardcoded data. You can therefore delete the `/data` directory inside `/channel` module as we don't need this hard-coded data anymore.
+
+Let's check out the frontend to see if everything is working as expected.
+
+Back in the root directory of the project, spin up both local servers
+
+```bash
+pnpm dev
+```
+
+Visit `localhost:3000` and you should see the data you added in Prisma Studio (i.e. from your database) instead of the hardcoded data.
+
+- Final step: add create channel method & dto
+
+## Creating a WebSocket server to send messages
+
+Here's the key functionality we want to implement:
+
+When a user sends a message, we want to:
+
+- store the message in the database
+- broadcast that message to all other users in the channel in realtime
+
+Let's dive into this!
+
+We already added the `Message` model in the previous step. Let's now add a module to the backend for handling all things messages.
+
+Use the Nest CLI `resource` command to create a new `message` module, seleting the `WebSocket` option when prompted:
+
+```bash
+npx nest g resource modules/message
+? What transport layer do you use? WebSockets
+? Would you like to generate CRUD entry points? No
+CREATE src/modules/message/message.gateway.spec.ts (535 bytes)
+CREATE src/modules/message/message.gateway.ts (226 bytes)
+CREATE src/modules/message/message.module.ts (235 bytes)
+CREATE src/modules/message/message.service.spec.ts (467 bytes)
+CREATE src/modules/message/message.service.ts (91 bytes)
+UPDATE src/app.module.ts (430 bytes)
+```
+
+As mentioned above, when a user sends a message we first want to store that message in the database.
+
+So, in the message service layer, let's add a `create()` method that will create a new message in the database:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class MessageService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create() {
+    return await this.databaseService.message.create({
+      data: {
+        content: `Hello world`,
+        user: {
+          connect: {
+            id: 1,
+          },
+        },
+        channel: {
+          connect: {
+            id: 1,
+          },
+        },
+      },
+    })
+  }
+}
+```
+
+As you can see in the above example, I've hardcoded the `content`, `user` and `channel` fields.
+
+We need to update the `create()` argument to take in these fields in the payload.
+
+Let's follow NestJS best practices and create a DTO for this. Using a DTO will be helpful because:
+
+- If we ever add an HTTP endpoint for creating a message, we can leverage the DTO
+- If we need to pass this payload to other areas of the codebase, we can leverage the DTO
+
+Add a directory inside the `/message` directory called `/dto` and inside, add a file called `create-message.dto.ts`:
+
+```ts
+import { IsInt, IsNotEmpty, IsString } from 'class-validator'
+
+export class CreateMessagelDto {
+  @IsString()
+  @IsNotEmpty()
+  content: string
+
+  @IsInt()
+  channelId: number
+
+  @IsInt()
+  userId: number
+}
+```
+
+Similar to previous projects, it would be good to keep this DTO consistent with the database model.
+
+Let's create a type that grabs the respective fields from the database model and use that in the DTO.
+
+In the `/messages` directory, add a new file called `message.types.ts`:
+
+```ts
+import { Message } from '@prisma/client'
+
+export type CreateMessageInput = Pick<Message, 'content' | 'channelId' | 'userId'>
+```
+
+And then use `implements` on the DTO to use this type:
+
+```ts
+import { IsInt, IsNotEmpty, IsString } from 'class-validator'
+import { CreateMessageInput } from '../message.types'
+
+export class CreateMessagelDto implements CreateMessageInput {
+  @IsString()
+  @IsNotEmpty()
+  content: string
+
+  @IsInt()
+  channelId: number
+
+  @IsInt()
+  userId: number
+}
+```
+
+This ensures that the DTO is consistent with the database model.
+
+You can now update the `MessageService` to use the DTO:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { DatabaseService } from '../../database/database.service'
+import { CreateMessagelDto } from './dto/create-message.dto'
+
+@Injectable()
+export class MessageService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create({ content, channelId, userId }: CreateMessagelDto) {
+    return await this.databaseService.message.create({
+      data: {
+        content,
+        user: {
+          connect: {
+            id: userId,
+          },
+        },
+        channel: {
+          connect: {
+            id: channelId,
+          },
+        },
+      },
+    })
+  }
+}
+```
+
+With that set up, let's focus on the WebSocket server.
+
+So we want the WebSocket server set up so that when the client sends a message, it can store the message in the database and then broadcast that message to all other users in the channel in realtime.
+
+So let's first set up the WebSocket server to listen for messages from the client:
+
+```ts
+import { MessageBody, SubscribeMessage, WebSocketGateway } from '@nestjs/websockets'
+import { MessageService } from './message.service'
+import { CreateMessagelDto } from './dto/create-message.dto'
+
+@WebSocketGateway({
+  cors: {
+    origin: process.env.WEB_CLIENT_URL,
+  },
+})
+export class MessageGateway {
+  constructor(private readonly messageService: MessageService) {}
+
+  @SubscribeMessage(`sendMessage`)
+  handleEvent(
+    @MessageBody()
+    message: CreateMessagelDto
+  ) {
+    // ... To do next: store message in database and broadcast to all other users in the channel
+  }
+}
+```
+
+What's happening here?
+
+The `@SubscribeMessage` decorator is listening for a message from the client with the event name `sendMessage`.
+
+When the client sends a message with the event name `sendMessage`, the `handleEvent()` method will be called. The `message` argument will be the payload sent from the client.
+
+It's also worth noting the cors configuration. We need to make sure that the WebSocket server allows connections from the web client. We're using the `WEB_CLIENT_URL` environment variable for this - make sure you add this to your `.env` file like this:
+
+```env
+WEB_CLIENT_URL="http://localhost:3000"
+```
+
+Let's now update the `handleEvent()` method to store the message in the database and broadcast it to all other users in the channel:
+
+```ts
+import {
+  MessageBody,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets'
+import { MessageService } from './message.service'
+import { Server } from 'socket.io'
+import { CreateMessagelDto } from './dto/create-message.dto'
+
+@WebSocketGateway({
+  cors: {
+    origin: process.env.WEB_CLIENT_URL,
+  },
+})
+export class MessageGateway {
+  constructor(private readonly messageService: MessageService) {}
+
+  @WebSocketServer()
+  server: Server
+
+  @SubscribeMessage(`sendMessage`)
+  async handleEvent(
+    @MessageBody()
+    message: CreateMessagelDto
+  ) {
+    const newMessage = await this.messageService.create(message)
+    this.server.emit(`newMessage`, newMessage)
+    return {
+      event: `sendMessage`,
+      data: newMessage,
+      isSuccessful: true,
+    }
+  }
+}
+```
+
+Note - I updated the `handleEvent()` method to be async as we're using promises inside the method.
+
+First, we're using the `create()` method from the `MessageService` we defined earlier on.
+
+Then we're using the `server` property to emit a `newMessage` event to all other users in the channel.
+
+How does the `server` property work? The `@WebSocketServer` decorator provided by NestJS essentially grabs the underlying `socket.io` server instance and makes it available to use.
+
+Finally, we're returning a response to the client to let it know that the message was sent successfully.
+
+There's one extra thing to consider here:
+
+We've got no control over what the client sends to the server. For example, the client could just send a string instead of a payload matching the `CreateMessageDto` interface.
+
+Using a private method, let's add some validation to the `handleEvent()` method to ensure that the payload sent from the client is valid.
+
+```ts
+import {
+  MessageBody,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+  WsException,
+} from '@nestjs/websockets'
+import { MessageService } from './message.service'
+import { Server } from 'socket.io'
+import { CreateMessagelDto } from './dto/create-message.dto'
+import { validate } from 'class-validator'
+
+@WebSocketGateway({
+  cors: {
+    origin: process.env.WEB_CLIENT_URL,
+  },
+})
+export class MessageGateway {
+  constructor(private readonly messageService: MessageService) {}
+
+  @WebSocketServer()
+  server: Server
+
+  @SubscribeMessage(`sendMessage`)
+  async handleEvent(
+    @MessageBody()
+    message: CreateMessagelDto
+  ) {
+    await this.validateSendMessage(message)
+    const newMessage = await this.messageService.create(message)
+    this.server.emit(`newMessage`, newMessage)
+    return {
+      event: `sendMessage`,
+      isSuccessful: true,
+    }
+  }
+
+  private async validateSendMessage(message: CreateMessagelDto) {
+    let payload = new CreateMessagelDto()
+    payload.content = message.content
+    payload.channelId = message.channelId
+    payload.userId = message.userId
+    validate(payload).then((errors) => {
+      if (errors.length > 0) {
+        throw new WsException(`CreateMessageDTO validation failed!`)
+      }
+    })
+  }
+}
+```
+
+We're using the `validate()` method from the `class-validator` library to validate the payload sent from the client.
+
+As noted in [the docs](https://docs.nestjs.com/websockets/exception-filters), in the WebSocket server you should throw a `WsException` instead of a `HttpException` when there's an error.
+
+Great work! That's our WebSocket server set up. Let's now go onto the client.
+
+## Adding a WebSocket client
+
+Given the focus of this course is on the backend, I'm not going to go into too much detail on the frontend code.
+
+We're going to do the following on the frontent to set up and use the WebSocket server:
+
+- Add a new zustand store to manage the WebSocket connection
+- Inside the `Chat.tsx` component, add a new `useEffect()` hook to connect to the WebSocket server
+- Instead of sending messages to local state, send them to the WebSocket server
+
+Inside the `/store` directory, add a new file called `socket.store.ts` with the following:
+
+```ts
+import { create } from 'zustand'
+import { Message } from '../data'
+import { io, Socket } from 'socket.io-client'
+import useMessageStore from './messages.store'
+
+type SocketStore = {
+  socket: Socket | null
+  initializeSocket: (url: string) => void
+  sendMessage: (message: { content: string; channelId: number; userId: number }) => void
+}
+
+const useSocketStore = create<SocketStore>((set) => ({
+  socket: null,
+  initializeSocket: (url: string) => {
+    const currentSocket = useSocketStore.getState().socket
+
+    if (currentSocket) {
+      // prevent multiple socket connections
+      return
+    }
+    const socketInstance = io(url)
+
+    socketInstance.on(`newMessage`, (message: Message) => {
+      useMessageStore.getState().addMessage(message)
+    })
+
+    set({ socket: socketInstance })
+  },
+  sendMessage: (message: { content: string; channelId: number; userId: number }) => {
+    const socket = useSocketStore.getState().socket
+    if (socket) {
+      socket.emit(`sendMessage`, message)
+    }
+  },
+}))
+
+export default useSocketStore
+```
+
+This store handles the following:
+
+- Initializing the socket connection
+- Sending messages to the socket server
+- Listening for new messages from the socket server
+
+Let's now update the `Chat.tsx` client side component to use this store:
+
+```tsx
+'use client'
+
+import React, { useEffect } from 'react'
+import useMessageStore from '../store/messages.store'
+import { ChannelWithMessages } from '../data'
+import { Messages } from './messages'
+import { SendMessage } from './send-message'
+import useSocketStore from '../store/socket.store'
+
+const Chat = ({ channel }: { channel: ChannelWithMessages }) => {
+  useEffect(() => {
+    useMessageStore.setState({ messages: channel.messages })
+  }, [channel.messages])
+
+  const initializeSocket = useSocketStore((state) => state.initializeSocket)
+  const socket = useSocketStore((state) => state.socket)
+  const webSocketServer = process.env.NEXT_PUBLIC_BACKEND_URL as string
+  useEffect(() => {
+    initializeSocket(webSocketServer)
+    return () => {
+      if (socket) {
+        socket.disconnect()
+      }
+    }
+  })
+
+  return (
+    <>
+      <div className="flex flex-grow flex-col-reverse space-y-6 space-y-reverse overflow-y-auto p-8">
+        <Messages />
+      </div>
+      <div className="sticky bottom-0 w-full border-t p-8">
+        <SendMessage channelId={channel.id} />
+      </div>
+    </>
+  )
+}
+
+export { Chat }
+```
+
+As you can see, we're initializing the socket connection when the component mounts and disconnecting from the socket connection when the component unmounts. We've also passed in the channelId to the `SendMessage` component.
+
+Which leads us to the final update - the `SendMessage` component:
+
+```tsx
+"use client";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import * as z from "zod";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "./ui/form";
+import { Button } from "../components/ui/button";
+import { Input } from "./ui/input";
+import useSocketStore from "../store/socket.store";
+
+const SendMessage = ({ channelId }: { channelId: number }) => {
+  // ...
+
+  const sendMessage = useSocketStore((state) => state.sendMessage);
+  function onSubmit(data: z.infer<typeof FormSchema>) {
+    if (!data.message) return;
+    sendMessage({
+      content: data.message,
+      channelId,
+      userId: 1,
+    });
+    form.reset();
+  }
+  return (
+    // ...
+  );
+};
+
+export { SendMessage };
+
+```
+
+Instead of sending the message to local state, we're now sending it to the WebSocket server via the sendMessage method we defined above in the socket store.
+
+In the root of your project, spin up both the backend and frontend servers:
+
+```bash
+pnpm dev
+```
+
+And give it a test! You should be able to send messages and see them appear in realtime - open up multiple browsers to confirm this.
+
+## Adding the user module
+
+Before getting to authentication and handling login/signup, let's first add the user module as on login/signup, we'll need to either:
+
+- Create a new user
+- Fetch an existing user
+
+Start by adding the user module and service:
+
+```bash
+npx nest g module modules/user
+npx nest g service modules/user
+```
+
+We'll need access to the database, so let's again import the `DatabaseModule` into the new user module. Let's also add the `UserService` to the `exports` array so that we can inject it into other modules (e.g. the auth module which we'll get to later on):
+
+```ts
+import { Module } from '@nestjs/common'
+import { UserService } from './user.service'
+import { DatabaseModule } from '../../database/database.module'
+
+@Module({
+  imports: [DatabaseModule],
+  providers: [UserService],
+  exports: [UserService],
+})
+export class UserModule {}
+```
+
+Using the database service, let's now add the 2 methods to the `UserService`:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { DatabaseService } from '../../database/database.service'
+
+@Injectable()
+export class UserService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create(payload: { email: string; firstName: string; lastName: string }) {
+    return await this.databaseService.user.create({
+      data: payload,
+    })
+  }
+
+  async findOne(email: string) {
+    return await this.databaseService.user.findUnique({
+      where: {
+        email,
+      },
+    })
+  }
+}
+```
+
+It makes sense to use a DTO for both the `create()` and `findOne()` method, so let's add that now:
+
+```ts
+npx nest g class modules/user/dto/create-user.dto --no-spec --flat
+npx nest g class modules/user/dto/find-user.dto --no-spec --flat
+```
+
+Let's update the DTO to add the respective properties we need. Looking at the database schema, you can see to create a user we need the firstName, lastName and email:
+
+```ts
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator'
+
+export class CreateUserDto {
+  @IsString()
+  @IsNotEmpty()
+  firstName: string
+
+  @IsString()
+  @IsNotEmpty()
+  lastName: string
+
+  @IsEmail()
+  @IsNotEmpty()
+  email: string
+}
+```
+
+Let's leverage the generated types from Prisma to ensure the DTO is consistent with the database model. Create a new file in the `/user` directory called `user.types.ts` and add the following:
+
+```ts
+import { User } from '@prisma/client'
+
+export type CreateUserInput = Pick<User, 'firstName' | 'lastName' | 'email'>
+```
+
+We can now update the DTO to inherit from this type:
+
+```ts
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator'
+import { CreateUserInput } from '../user.types'
+
+export class CreateUserDto implements CreateUserInput {
+  @IsString()
+  @IsNotEmpty()
+  firstName: string
+
+  @IsString()
+  @IsNotEmpty()
+  lastName: string
+
+  @IsEmail()
+  @IsNotEmpty()
+  email: string
+}
+```
+
+Let's implement something similar for the `FindUserDto`:
+
+```ts
+import { IsEmail, IsNotEmpty } from 'class-validator'
+import { FindUserInput } from '../user.types'
+
+export class FindUserDto implements FindUserInput {
+  @IsEmail()
+  @IsNotEmpty()
+  email: string
+}
+```
+
+Here's the `FindUserInput` type:
+
+```ts
+export type FindUserInput = Pick<User, 'email'>
+```
+
+Finally, let's update the `UserService` to use the DTO:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { DatabaseService } from '../../database/database.service'
+import { CreateUserDto } from './dto/create-user.dto'
+import { FindUserDto } from './dto/find-user.dto'
+
+@Injectable()
+export class UserService {
+  constructor(private readonly databaseService: DatabaseService) {}
+
+  async create(createUserDto: CreateUserDto) {
+    return await this.databaseService.user.create({
+      data: createUserDto,
+    })
+  }
+
+  async findOne({ email }: FindUserDto) {
+    return await this.databaseService.user.findUnique({
+      where: {
+        email,
+      },
+    })
+  }
+}
+```
+
+Nice! Let's get on to authentication.
+
+## Authentication - initial set up
+
+For our Slack Clone, we have 2 methods of authentication:
+
+- Magic email link
+- Google OAuth
+
+Let's start with implementing with the magic email link.
+
+Here's the flow that we're going to implement. There will be some small variations for signin/signup, but this is the general plan:
+
+- User submits form on signin/signup screen which sends a request to the backend
+- Backend generates a magic link and sends it to the user's email address. This magic link should expire after 15 minutes
+- User clicks on the magic link
+- Backend verifies the magic link
+- User is redirect to the chat room
+
+Before implementing the respective routes in the backend, we need a way to send emails and also a way to generate magic links via a unique ID. Let's add these 2 services to the backend.
+
+```bash
+npx nest g module services/email
+npx nest g service services/email --no-spec
+
+npx nest g module services/uuid
+npx nest g service services/uuid --no-spec
+```
+
+FYI I used the --no-spec as I don't want the generated tests for these services - we'll handle unit testing later.
+
+Let's start with the email service.
+
+We're going to use [Resend](https://resend.com/), a great (developer friendly) tool for sending emails.
+
+Here's what you'll need to do to get Resend set up:
+
+1. If you don't already have a Resend account, you can sign up for a free account [here](https://resend.com/signup). As of writing, Resend is free for up to 3,000 emails per month.
+2. Once you're logged in, generate an API key
+3. Add a domain to send the emails from. Follow the instructions inside Resend to do this.
+
+Add the Resend API key to your `.env` file (and a dummy value to your `.env.example` file):
+
+```env
+RESEND_API_KEY="XXXX"
+```
+
+And then update the config file (in the `/config` directory):
+
+```ts
+export default () => ({
+  // ...
+  resend: {
+    apiKey: process.env.RESEND_API_KEY,
+  },
+})
+```
+
+Next, install the Resend SDK (make sure you're in the `backend` directory):
+
+```bash
+pnpm add resend
+```
+
+In the `EmailService`, let's first make sure the Resend API key is available from the environment variable and assign it to a `Resend` private property:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { Resend } from 'resend'
+
+@Injectable()
+export class EmailService {
+  private resend: Resend
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.getOrThrow(`resend.apiKey`)
+    this.resend = new Resend(apiKey)
+  }
+}
+```
+
+Using the `getOrThrow()` method from the `ConfigService`, we're grabbing the API key from the environment variables and throwing an error if it's not available. This error will be thrown when the app starts up, so it's a good way to ensure the API key is available.
+
+Let's now add a method to send an email:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import { Resend } from 'resend'
+
+@Injectable()
+export class EmailService {
+  private resend: Resend
+  constructor(private readonly configService: ConfigService) {
+    const apiKey = this.configService.getOrThrow(`resend.apiKey`)
+    this.resend = new Resend(apiKey)
+  }
+
+  async send({ email, subject, html }: { email: string[]; subject: string; html: string }) {
+    await this.resend.emails.send({
+      from: 'Tom <contact@tomray.dev>', // update this to your own domain!
+      to: email,
+      subject: subject,
+      html: html,
+    })
+  }
+}
+```
+
+Great! Let's now do the `UuidService`.
+
+We're going to use the `nanoid` package for generating the uuid, so let's install that (installing the version 3 to avoid any ESModule errors):
+
+```bash
+pnpm add nanoid@3
+```
+
+And then let's add a method to the `UuidService` to generate a uuid:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { nanoid } from 'nanoid'
+
+@Injectable()
+export class UuidService {
+  generate(length?: number) {
+    return nanoid(length)
+  }
+}
+```
+
+The `generate()` method passes in an optional length argument to the `nanoid` function. If no length is passed in, the default length is 21 characters.
+
+## Authentication - magic email signin/signup
+
+Let's now add the controller and respective logic to handle the magic link flow. First, let's add a new `auth` module, controller and service:
+
+```bash
+npx nest g module modules/auth
+npx nest g controller modules/auth --no-spec
+npx nest g service modules/auth --no-spec
+```
+
+I've used `--no-spec` on the controller and service files. This is explained more below.
+
+Inside the controller, let's now consider the 3 routes we need to implement:
+
+- POST /auth/magic/signup
+- POST /auth/magic/signin
+- GET /auth/magic/verify/:uuid
+
+Both the signup and signup routes will generate a magic link and send it to the user's email address. When the user presses the link in the email, it will open up the browser which will call the verify route to verify the magic link.
+
+So let's focus first on the /signup and /signin link to handle the logic of generating a magic link and sending it to the user's email address.
+
+In the controller, let's add the /signup and /signin routes:
+
+```ts
+import { Body, Controller, Param, Post, UsePipes } from '@nestjs/common'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('magic/signin')
+  magicSignIn(@Body() findUserDto: FindUserDto) {
+    console.log(`sign in payload`, findUserDto)
+    // TODO: call service layer
+    return
+  }
+
+  @Post('magic/signup')
+  magicSignUp(@Body() createUserDto: CreateUserDto) {
+    console.log(`sign up payload`, createUserDto)
+    // TODO: call service layer
+    return
+  }
+}
+```
+
+As you can see, we are leveraging the DTOs we set up earlier in the `user` module. This ensures that the payload sent from the client is valid for both endpoints.
+
+If you like, do a few tests in Postman with different payloads to confirm that the validation is working as expected.
+
+There's some additional validation we should do for each endpoint:
+
+- If the user is signing in, check if the user exists. If they don't, throw an error (`NotFoundException` is the most appropriate)
+- If the user is signing up, check if the user already exists. If they do, throw an error (`ConflictException` is the most appropriate)
+
+Let's use some custom pipes to add these checks:
+
+```bash
+npx nest g pipe modules/auth/pipes/sign-in/sign-in
+npx nest g pipe modules/auth/pipes/sign-in/sign-up
+```
+
+Let's first handle the signin pipe. In the `SignInPipe`, let's add the following:
+
+```ts
+import { Injectable, NotFoundException, PipeTransform } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { FindUserDto } from '../../../user/dto/find-user.dto'
+
+@Injectable()
+export class SignInPipe implements PipeTransform {
+  constructor(private readonly userService: UserService) {}
+
+  async transform(findUserDto: FindUserDto) {
+    const user = await this.userService.findOne({ email: findUserDto.email })
+    if (!user) {
+      throw new NotFoundException(
+        `User with email ${findUserDto.email} does not exist, please create an account`
+      )
+    }
+    return findUserDto
+  }
+}
+```
+
+In this pipe, we're leveraging the `UserService` to check if the user exists. If they don't, we're throwing a `NotFoundException`.
+
+In order for this to work, make sure you import the `UserModule` into the `AuthModule`:
+
+```ts
+import { Module } from '@nestjs/common'
+import { AuthController } from './auth.controller'
+import { AuthService } from './auth.service'
+import { EmailModule } from '../../services/email/email.module'
+import { UuidModule } from '../../services/uuid/uuid.module'
+import { UserModule } from '../user/user.module'
+
+@Module({
+  imports: [UserModule],
+  controllers: [AuthController],
+  providers: [AuthService],
+})
+export class AuthModule {}
+```
+
+Also make sure in the `UserModule` that the `UserService` is included as an export!
+
+Let's also add a couple of unit tests for the `SignInPipe`. Let's test:
+
+- it should return the payload if the user exists
+- it should throw a NotFoundException if the user does not exist
+
+In the generated `sign-in.pipe.spec.ts` file, let's add the following:
+
+```ts
+import { NotFoundException } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { createMock } from '@golevelup/ts-jest'
+import { SignInPipe } from './sign-in.pipe'
+
+describe('SignIn', () => {
+  const userService = createMock<UserService>()
+  const signInPipe = new SignInPipe(userService)
+
+  it('should be defined', () => {
+    expect(signInPipe).toBeDefined()
+  })
+
+  it('should return the payload if the user exists', async () => {
+    // Arrange
+    const payload = { email: `test@gmail.com` }
+    userService.findOne.mockResolvedValueOnce({
+      id: 123,
+      firstName: `Test`,
+      lastName: `Test`,
+      email: `test@gmail.com`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    // Act
+    const result = await signInPipe.transform(payload)
+
+    // Assert
+    expect(result).toEqual(payload)
+  })
+
+  it('should throw an error if the user does not exist', async () => {
+    // Arrange
+    const payload = { email: `test@gmail.com` }
+    userService.findOne.mockResolvedValueOnce(null)
+
+    // Act
+    const result = async () => await signInPipe.transform(payload)
+
+    // Assert
+    expect(result).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+```
+
+The `SignInPipe` requires that the `UserService` is injected into the constructor. We're using the `createMock()` method from the `ts-jest` library to create a mock of the `UserService` and then passing that into the `SignInPipe` constructor. We're then able to mock the `findOne()` method on the `UserService` to return a user or null.
+
+Let's now implement the `SignUpPipe`:
+
+```ts
+import { ConflictException, Injectable, PipeTransform } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { FindUserDto } from '../../../user/dto/find-user.dto'
+
+@Injectable()
+export class SignUpPipe implements PipeTransform {
+  constructor(private readonly userService: UserService) {}
+
+  async transform(findUserDto: FindUserDto) {
+    const user = await this.userService.findOne({ email: findUserDto.email })
+    if (user) {
+      throw new ConflictException(
+        `User with email ${findUserDto.email} already exists, please sign in`
+      )
+    }
+    return findUserDto
+  }
+}
+```
+
+In this pipe, we're leveraging the `UserService` to check if the user exists. If they do, we're throwing a `ConflictException`, otherwise we're returning the payload.
+
+Let's also add the unit tests for this pipe:
+
+```ts
+import { NotFoundException } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { SignUpPipe } from './sign-up.pipe'
+import { createMock } from '@golevelup/ts-jest'
+
+describe('SignUpPipe', () => {
+  const userService = createMock<UserService>()
+  const signUpPipe = new SignUpPipe(userService)
+  it('should be defined', () => {
+    expect(signUpPipe).toBeDefined()
+  })
+
+  it('should pass the validation if no user exists', async () => {
+    // Arrange
+    const payload = {
+      email: `test@gmail.com`,
+      firstName: `Test`,
+      lastName: `Test`,
+    }
+    userService.findOne.mockResolvedValueOnce(null)
+
+    // Act
+    const result = await signUpPipe.transform(payload)
+
+    // Assert
+    expect(result).toEqual(payload)
+  })
+
+  it('should fail the validation if the user already exists', async () => {
+    // Arrange
+    const payload = {
+      email: `test@gmail.com`,
+      firstName: `Test`,
+      lastName: `Test`,
+    }
+    userService.findOne.mockResolvedValueOnce({
+      id: 123,
+      firstName: `Test`,
+      lastName: `Test`,
+      email: `test@gmail.com`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    // Act
+    const result = async () => await signUpPipe.transform(payload)
+
+    // Assert
+    expect(result).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+```
+
+Great! Let's now update the controller to use these pipes:
+
+```ts
+import { Body, Controller, Param, Post, UsePipes } from '@nestjs/common'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+import { SignInPipe } from './pipes/sign-in/sign-in.pipe'
+import { SignUpPipe } from './pipes/sign-up/sign-up.pipe'
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('magic/signin')
+  @UsePipes(SignInPipe)
+  magicSignIn(@Body() findUserDto: FindUserDto) {
+    console.log(`sign in payload`, findUserDto)
+    // TODO: call service layer
+    return
+  }
+
+  @Post('magic/signup')
+  @UsePipes(SignUpPipe)
+  magicSignUp(@Body() createUserDto: CreateUserDto) {
+    console.log(`sign up payload`, createUserDto)
+    // TODO: call service layer
+    return
+  }
+}
+```
+
+We're using the `@UsePipes` guard to apply the validation logic to the respective routes.
+
+Do quick some tests in Postman to validate that the full validation (both DTO & pipes) are working as expected!
+
+With the validation done, let's now focus on the logic in the service layer.
+
+In both the signin and sign up logic, we need to generate a magic link and send it to the respective users email. The only difference is that for the signup logic, we need to create a new user in the database.
+
+So in the `AuthService`, let's first add a private method for generating the magic link that can then be used in both the signin and signup logic:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { EmailService } from '../../services/email/email.service'
+import { UuidService } from '../../services/uuid/uuid.service'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { ConfigService } from '@nestjs/config'
+import { CacheService } from '../../core/cache/cache.service'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+import { UserService } from '../user/user.service'
+
+@Injectable()
+export class AuthService {
+  private webClient: string
+  constructor(
+    private readonly uuidService: UuidService,
+    private readonly configService: ConfigService,
+    private readonly cacheService: CacheService
+  ) {
+    this.webClient = this.configService.getOrThrow(`apps.web`)
+  }
+
+  private async createMagicLink(email: string) {
+    const uuid = this.uuidService.generate()
+    await this.cacheService.set(`magic:${uuid}`, email, 60 * 15 * 1000)
+    return `${this.webClient}/auth/magic/${uuid}`
+  }
+}
+```
+
+There's quite a few bits happening here - let's explain!
+
+- First, we're using the config service to grab the web client URL from the environment variables. This is the base URL that the user will be redirected to when they click on the magic link. (You'll need to add this to your .env file and config file)
+- We're then using the `uuidService` to generate a uuid (importing and using the service we created earlier).
+- We're then using the `cacheService` (which is available from the starter repo in the `/core` directory) to store the user's email address in the cache against the uuid. We're setting the TTL to 15 minutes (60 _ 15 _ 1000 = 15 minutes in milliseconds).
+- Finally, we're returning the magic link which is the web client URL + the uuid.
+
+Let's now leverage the private `createMagicLink()` method in the signin and signup logic:
+
+```ts
+import { Injectable } from '@nestjs/common'
+import { EmailService } from '../../services/email/email.service'
+import { UuidService } from '../../services/uuid/uuid.service'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { ConfigService } from '@nestjs/config'
+import { CacheService } from '../../core/cache/cache.service'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+import { UserService } from '../user/user.service'
+
+@Injectable()
+export class AuthService {
+  private webClient: string
+  constructor(
+    private readonly emailService: EmailService,
+    private readonly uuidService: UuidService,
+    private readonly configService: ConfigService,
+    private readonly cacheService: CacheService,
+    private readonly userService: UserService
+  ) {
+    this.webClient = this.configService.getOrThrow(`apps.web`)
+  }
+
+  async magicSignIn({ email }: FindUserDto) {
+    const magicLink = await this.createMagicLink(email)
+    return this.emailService.send({
+      email: [email],
+      subject: `Magic Sign In - Slack Clone`,
+      html: `<a href="${magicLink}">Sign in to Slack Clone</a>`,
+    })
+  }
+
+  async magicSignUp(data: CreateUserDto) {
+    await this.userService.create(data)
+    const magicLink = await this.createMagicLink(data.email)
+    return this.emailService.send({
+      email: [data.email],
+      subject: `Magic Sign Up - Slack Clone`,
+      html: `<a href="${magicLink}">Sign in to Slack Clone</a>`,
+    })
+  }
+
+  private async createMagicLink(email: string) {
+    const uuid = this.uuidService.generate()
+    await this.cacheService.set(`magic:${uuid}`, email, 60 * 15 * 1000)
+    return `${this.webClient}/auth/magic/${uuid}`
+  }
+}
+```
+
+As you can see, we're using the `emailService` to send the email (using the service we created earlier). We're also using the `userService` to create a new user in the database if the user is signing up.
+
+Now, you might be wondering why didn't generate any test files for the `AuthService` or `AuthController`.
+
+The reason is that we're going to be using integration tests to test the full flow. Why? Because:
+
+- The `AuthService` injects a lot of dependencies. Mocking all of these dependencies would be a lot of work and would make the tests brittle.
+- In unit tests, I find it best practice to only test the end result of a method. One of the challenges with the code we've done is that the functions have side effects but no direct return values. This makes "result-based" testing a bit tricky since the results are implicit and are in the form of side effects (sending emails, setting cache values, etc.).
+
+Instead, we'll do some integration tests shortly to test the full flow.
+
+Let's now add the final route to the controller - the verify route. This route will be called when the user clicks on the magic link in the email.
+
+Specifically, it will work like:
+
+- User receives the email
+- They press the magic link in the email
+- (NextJS) This opens the respective /auth/magic/:uuid page in the browser
+- (NextJS) The browser will call the NestJS verify route to check the `uuid` is valid
+- (NestJS) The verify endpoint is called which checks if the `uuid` is valid. If it's not, it will throw an error
+- (NextJS) If the `uuid` is valid (i.e. no error is thrown), the user will be redirected to the chat room
+
+So let's update the logic to check if the `uuid` is valid by adding a new endpoint to the controller:
+
+```ts
+import { Body, Controller, Param, Post, UsePipes } from '@nestjs/common'
+import { AuthService } from './auth.service'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { SignInPipe } from './pipes/sign-in/sign-in.pipe'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+import { VerifyMagicPipe } from './pipes/verify-magic/verify-magic.pipe'
+import { SignUpPipe } from './pipes/sign-up/sign-up.pipe'
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  // ...
+
+  @Post('magic/verify/:uuid')
+  magicVerify(@Param('uuid') uuid: string) {
+    console.log(`UUID to verify:`, uuid)
+    return
+  }
+}
+```
+
+So in this endpoint, we want to check:
+
+- first if the `uuid` passed in is valid (i.e. it exists in the cache)
+- then check that the email address from the cache exists in the database (i.e. the user exists)
+
+As this is validation logic, let's add a new pipe to handle this:
+
+```bash
+npx nest g pipe modules/auth/pipes/verify-magic
+```
+
+Then let's add the logic for the pipe:
+
+```ts
+import { Injectable, NotFoundException, PipeTransform } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { CacheService } from '../../../../core/cache/cache.service'
+
+@Injectable()
+export class VerifyMagicPipe implements PipeTransform {
+  constructor(
+    private readonly userService: UserService,
+    private readonly cacheService: CacheService
+  ) {}
+
+  async transform(uuid: string) {
+    const email = await this.cacheService.get(`magic:${uuid}`)
+    if (!email || typeof email !== `string`) {
+      throw new NotFoundException(`Magic link has expired or does not exist`)
+    }
+    const user = await this.userService.findOne({ email })
+    if (!user) {
+      throw new NotFoundException(
+        `User with email ${email} does not exist, please create an account`
+      )
+    }
+    return user
+  }
+}
+```
+
+We're injecting the `CacheService` and `UserService` to check if the `uuid` exists in the cache and if the user exists in the database. If either of these checks fail, we're throwing a `NotFoundException`.
+
+Let's add some tests for this pipe. Specifically we want to test:
+
+- it should throw an error if the uuid does not exist
+- it should throw an error if the respective user does not exist
+- it should return the respective user if uuid is valid and email is valid
+
+```ts
+import { NotFoundException } from '@nestjs/common'
+import { UserService } from '../../../user/user.service'
+import { createMock } from '@golevelup/ts-jest'
+import { CacheService } from '../../../../core/cache/cache.service'
+import { VerifyMagicPipe } from './verify-magic.pipe'
+
+describe('VerifyMagicPipe', () => {
+  const userService = createMock<UserService>()
+  const cacheService = createMock<CacheService>()
+  const verifyMagicPipe = new VerifyMagicPipe(userService, cacheService)
+  it('should be defined', () => {
+    expect(verifyMagicPipe).toBeDefined()
+  })
+
+  it('should throw an error if the uuid does not exist', async () => {
+    // Arrange
+    const payload = `fake-uuid`
+    cacheService.get.mockResolvedValueOnce(null)
+
+    // Act
+    const result = async () => await verifyMagicPipe.transform(payload)
+
+    // Assert
+    expect(result).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('should throw an error if the respective user does not exist', async () => {
+    // Arrange
+    const payload = `fake-uuid`
+    cacheService.get.mockResolvedValueOnce(`test@gmail.com`)
+    userService.findOne.mockResolvedValueOnce(null)
+
+    // Act
+    const result = async () => await verifyMagicPipe.transform(payload)
+
+    // Assert
+    expect(result).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('should return the respective user if uuid is valid and email is valid', async () => {
+    // Arrange
+    const payload = `fake-uuid`
+    const user = {
+      id: 123,
+      firstName: `Test`,
+      lastName: `Test`,
+      email: `test@gmail.com`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    cacheService.get.mockResolvedValueOnce(`test@gmail.com`)
+    userService.findOne.mockResolvedValueOnce(user)
+
+    // Act
+    const result = async () => await verifyMagicPipe.transform(payload)
+
+    // Assert
+    expect(result()).resolves.toBe(user)
+  })
+})
+```
+
+Finally, let's implement this pipe in the controller:
+
+```ts
+import { Body, Controller, Param, Post, UsePipes } from '@nestjs/common'
+import { AuthService } from './auth.service'
+import { FindUserDto } from '../user/dto/find-user.dto'
+import { SignInPipe } from './pipes/sign-in/sign-in.pipe'
+import { CreateUserDto } from '../user/dto/create-user.dto'
+import { VerifyMagicPipe } from './pipes/verify-magic/verify-magic.pipe'
+import { SignUpPipe } from './pipes/sign-up/sign-up.pipe'
+import { User } from '@prisma/client'
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('magic/signin')
+  @UsePipes(SignInPipe)
+  magicSignIn(@Body() findUserDto: FindUserDto) {
+    return this.authService.magicSignIn(findUserDto)
+  }
+
+  @Post('magic/signup')
+  @UsePipes(SignUpPipe)
+  magicSignUp(@Body() createUserDto: CreateUserDto) {
+    return this.authService.magicSignUp(createUserDto)
+  }
+
+  @Post('magic/verify/:uuid')
+  magicVerify(@Param('uuid', VerifyMagicPipe) user: User) {
+    return user
+  }
+}
+```
+
+For now, we're just going to return the respective user (returned from the pipe) in the response - so no service layer is required. We'll update this later when we add access and refresh tokens.
+
+## Authentication - Google signin/signup
+
+Lorem
+
+## Authentication - protecting the backend API with JWT tokens
+
+So far we've just added some basic signin/signup functionality using magic links and Google OAuth to redirect the user to the 'logged in' page. But we haven't actually protected the backend API yet.
+
+We want to implement this functionality:
+
+- Restrict access to the chat room to only signed in users (currently anyone can access the chat room by visiting the URL)
+- Restrict access to the backend API to only signed in users (currently anyone can access the backend API)
+- If a logged in user visits /login or /signup, redirect them to the chat room
+- Messages should be sent from the currently logged in user (currently they're sent from a hardcoded user)
+
+## Authentication - adding refresh tokens
+
+How are refresh tokens different to access tokens?
+
+- Access tokens are short lived (e.g. 15 minutes)
+- Refresh tokens are long lived (e.g. 7 days)
+- Access tokens are used to access protected resources (e.g. the backend API)
+- Refresh tokens are used to get a new access token when the access token expires
+
+```
+
+```
