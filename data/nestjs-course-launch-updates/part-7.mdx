@@ -1,10 +1,10 @@
 ---
-title: 'NestJS Course Launch Update - How much will the course cost?'
-h1: 'Course Pricing Update'
+title: 'NestJS Course Launch Update -  Launch date coming soon'
+h1: 'Course Launch Date Announced Soon!'
 date: '2023-10-06'
 lastmod: '2023-10-06'
 draft: false
-summary: 'An update from the past 2 weeks including an initial view on the course pricing'
+summary: 'An update from the past 2 weeks including updates on the final project included in the course'
 images: ['/static/images/nestjs-course.png']
 isHiddenFromSearch: false
 ---
@@ -13,7 +13,7 @@ Hope you're doing great 👋!
 
 Another 2 weeks have gone by and a lot of progress has been made on the course I'm building - [how to learn NestJS by building real-world projects](/nestjs-course).
 
-Still planning to launch in November 2023 (we're getting close!).
+Still planning to launch in November 2023. I'll be announcing the specific launch date soon.
 
 Here's an update on the launch of the course:
 
@@ -27,7 +27,17 @@ As you're on the waiting list, you'll receive a significant discount code which 
 
 ## 🏋️ What have I been working on the last 2 weeks?
 
-It wasn't my most productive 2 weeks as was away on vacation visiting family in France 🇫🇷! But nonetheless, I finished off the Real estate project (read more details on that below) and am still making good progress for the November launch.
+I've been working on the final project for the course - a Slack clone (in the browser). It uses NextJS 13 for the web client and NestJS on the backend). If you've never used Slack before, it's a simple chat app that allows you to create channels and send messages to other users in realtime.
+
+Specifically, it covers:
+
+- Using a monorepo set up with pnpm workspaces
+- Setting up a WebSocket server in NestJS
+- Setting up a WebSocket client in NextJS
+- Building authentication from scratch in both NestJS & NextJS, including:
+  -- Add user signup & login (i.e. authentication, including Google OAuth)
+  -- Set up access tokens and refresh tokens
+  -- Protecting HTTP and WebSocket server connections from unauthenticated users
 
 ## 🚀 What projects will be included in the course?
 
@@ -49,15 +59,17 @@ The course will be project-based. Here are the projects that are in progress and
 
 ​In this project, we'll build simple real estate API that includes file uploads and sending jobs to a queue for processing. The project is really about handling files in HTTP requests and in-depth look into using queues. Specifically, it covers things like validating file uploads in HTTP requests, setting up and configuring Bull (the queuing package used in NestJS), sending files to a queue as jobs, processing the jobs in the background, viewing the queue jobs in a visual UI using Bull Board, uploading the files to Google Cloud Storage, and more!
 
-### 👑 Fullstack monorepo (TBC)
+### 📬 Slack clone (Fullstack monorepo)
 
-​In my next update in 2 weeks I'll confirm the details on this project!
+​See update above on what I've been working on for the past 2 weeks!
 
 ---
 
-I'm really happy with the projects that are included so far - they provide a really solid foundation on NestJS and are starting to go into some more advanced territories.
+Now that the Slack clone project is done, I can confirm this is all the projects that will be included in the course launch!
 
-I'll be announcing more projects in the weeks ahead that'll go into more advanced topics like authentication, authorization, websockets, working in a monorepo and more!
+I am planning to add further projects in the future after the launch (e.g. GraphQL server, monorepo set up with tRPC and more).
+
+I'm really happy with the projects that are included - they provide a really solid foundation on NestJS but also go into some more advanced territories.
 
 As mentioned previously, all projects will include testing (unit, integration & end-to-end) and deployment 🙃.
 
@@ -65,7 +77,9 @@ As mentioned previously, all projects will include testing (unit, integration & 
 
 I’m going to continue building this course in public, sharing updates with you every 2 weeks to keep you in the loop on my progress. Here are some of my next to-do items to work through:
 
-- Start working on the next project. I'm excited about the next project. It will be a Sass app (a monorepo with auth, sessions and more) - I'll share the full details next week!
+- I need to start moving all the course content into Podia, the platform I'm using to host the course
+- Choose a launch date (it'll be sometime in late November)
+- Figure out my 'launch plan' of how I will communicate the launch
 - Keep making small daily progress. Similar to my tutorials, I'm prioritising quality of the material and really trying to explain concepts from first principles (which takes a lot of time!). But with daily action I am making good progress.
 
 Is there anything else you'd like to know from these updates Let me know by replying to any of the emails I send you, I'd love to hear from you! ✌️.
