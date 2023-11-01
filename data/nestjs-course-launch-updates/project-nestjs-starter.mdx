@@ -35,7 +35,6 @@ Here's what's included in the starter repos:
 - Docker compose set up for a Postgres database & Redis
 - Prisma setup (the ORM we'll be using in each project to interact with the database)
 - Redis and CacheService setup
-
 - Jest config (including env variables)
 - Setting up a CI Pipeline using Github Actions
 
@@ -299,6 +298,32 @@ export class TransformResponseInterceptor implements NestInterceptor {
 }
 ```
 
+Nice! There's finally one more thing to consider - what if the response is null or undefined? In that case, we can return the `data` property with an empty array, like this:
+
+```ts:transform-response.interceptor.ts
+@Injectable()
+export class TransformResponseInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    return next.handle().pipe(
+      map((response) => {
+        if (!response) {
+          return {
+            data: []
+          }
+        }
+        if (response.data && response.meta) {
+          return {
+            data: response.data,
+            meta: response.meta,
+          };
+        }
+        return { data: response };
+      }),
+    );
+  }
+}
+```
+
 To implement this interceptor, inside your `core.module.ts` file, add the following:
 
 ```typescript:app.module.ts
@@ -493,6 +518,39 @@ bootstrap();
 ```
 
 If `whitelist` is set to true, the ValidationPipe will strip away properties from the input object that do not have any matching decorators in the corresponding DTO. This can be useful to automatically remove any unwanted or unexpected properties sent by the client, thus ensuring that only expected properties are being processed.
+
+Finally, it's also worth updating the e2e test to reflect the new validation pipe:
+
+```typescript:app.e2e-spec.ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../src/app.module';
+
+describe('AppController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
+    await app.init();
+  });
+
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect({ data: 'Hello World!' });
+  });
+});
+
+```
+
+Let's continue to the next section - building a custom logger!
 
 ## Setting up logging in NestJS
 
@@ -1016,6 +1074,29 @@ The `datasource` provides the connection to your Postgres database by looking up
 
 This is important - using the env file allows us to have a different Postgres database for our various environments (local, staging, production, etc).
 
+Let's add a `User` model to the `schema.prisma` file so that we have a table to work with. In future projects, you'll likely remove/edit this model to suit your needs.
+
+```json
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+```
+
 Your local Postgres server already exists (as we set this up in the previous step with Docker Compose) - so we just need to grab these credentials and update our env file.
 
 Before changing anything, your `env` file should look something like this as Prisma auto-generated the `DATABASE_URL` for you:
@@ -1128,6 +1209,12 @@ Finally, let's add a few scripts that will make using Prisma easier.
 ```
 
 You'll need to use the `db:migrate:dev` script after each change to the `schema.prisma` file.
+
+In fact, let's run it now to create the `User` table in the database. You'll be prompted to give the migration a name - just hit enter to use the default name.
+
+```shell
+pnpm db:migrate:dev
+```
 
 The other scripts will be explained in future steps below!
 
@@ -1326,7 +1413,7 @@ export class CacheService {
   }
 
   async set(key: string, value: any, ttl?: number): Promise<void> {
-    await this.cache.set(key, value, ttl);
+    await this.cache.set(key, value, { ttl } as any);
   }
 
   async del(key: string): Promise<void> {
@@ -1346,6 +1433,8 @@ export class CacheService {
 ```
 
 The 4 methods allow us to get, set, delete and reset the cache. The reset method will be used in a later step when we want to clear the cache before each e2e test!
+
+One thing worth noting is the use of `any` in the `set` method. This is because the `ttl` property is not defined in the `@types/cache-manager` package. This is a known issue and will hopefully be fixed soon.
 
 There's also a `onModuleDestroy` method is a built in NestJS lifecycle hook that will be called when the module is destroyed. This will be used to close the Redis connection when the application is shut down. The reason this is required is because [the Redis connection is kept open by default](https://github.com/nestjs/nest/issues/1621) which causes issues when running e2e tests.
 
@@ -1767,20 +1856,15 @@ Let me explain what's happening with this script:
 - `npx prisma migrate reset` will reset the database to a clean state. This means that all the data in the database will be deleted, and the schema will be recreated.
 - The `--force` flag is used to skip the confirmation prompt and the `--skip-seed` flag is used to skip seeding the database with data. We don't need to seed the database with data because we'll be doing this in the tests.
 
-If you run the command `pnpm db:migrate:test` locally, you'll get the following error:
+Let's finally update the `test:e2e` script to run the `db:migrate:test` script before running the tests:
 
-```shell
-You don't have any models defined in your schema.prisma, so nothing will be generated.
-You can define a model like this:
-
-model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
+```json:package.json
+{
+  "scripts": {
+    "test:e2e": "pnpm docker:start:test && pnpm db:migrate:test && dotenv -e .env.test -- jest --runInBand --config ./test/jest-e2e.json && pnpm docker:down:test",
+  }
 }
 ```
-
-This is because we haven't defined any models in our `prisma.schema` file yet. We'll do this in the projects ahead and update the `pnpm test:e2e` script to include the `pnpm db:migrate:test` script then.
 
 To recap, here's what we've done so far:
 
@@ -1895,20 +1979,38 @@ Nest could not find DatabaseService element (this provider does not exist in the
 
 This is because in this starter repo, we've not imported the `DatabaseModule` anywhere so it's not available in the `AppModule`.
 
-In the projects ahead, we'll be using the `DatabaseModule` a lot, so for now let's just comment out the `resetDb()` method in our tests so we can easliy add it back later on:
+Add the `DatabaseModule` to the `imports` array in the `AppModule`:
+
+```ts:app.module.ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { CoreModule } from './core/core.module';
+import { DatabaseModule } from './database/database.module';
+
+@Module({
+  imports: [CoreModule, DatabaseModule], // <--- Add the DatabaseModule
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+Then finally, let's update the testing setup file to reset the database after each test:
 
 ```ts:setup.ts
 import { HttpServer, INestApplication } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { CacheService } from '../src/core/cache/cache.service';
-// import { DatabaseService } from '../src/database/database.service';
+import { DatabaseService } from '../src/database/database.service';
 
 let app: INestApplication;
 let server: HttpServer;
 let moduleFixture: TestingModule;
 let cache: CacheService;
-// let database: DatabaseService;
+let database: DatabaseService;
 
 beforeAll(async () => {
   moduleFixture = await Test.createTestingModule({
@@ -1917,13 +2019,13 @@ beforeAll(async () => {
 
   app = moduleFixture.createNestApplication();
   cache = moduleFixture.get<CacheService>(CacheService);
-  // database = moduleFixture.get<DatabaseService>(DatabaseService);
+  database = moduleFixture.get<DatabaseService>(DatabaseService);
   await app.init();
   server = app.getHttpServer();
 });
 
 afterEach(async () => {
-  // await database.resetDb();
+  await database.resetDb();
   await cache.reset();
 });
 
@@ -1937,11 +2039,11 @@ export { app, server };
 
 There's another optimization we can make to this setup.
 
-In the default test file that NestJS generates, you'll see that the `beforeEach` hook is used to create a new instance of the `Test` object, and then each test uses `app.getHttpServer()` to get the instance of the NestJS application and make requests to it.
+In the default test file that NestJS generates called `app.e2e-spec.ts`, you'll see that the `beforeEach` hook is used to create a new instance of the `Test` object, and then each test uses `app.getHttpServer()` to get the instance of the NestJS application and make requests to it.
 
-```ts:app.e2e-spec.ts
+```typescript:app.e2e-spec.ts
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from './../src/app.module';
 
@@ -1954,6 +2056,7 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
     await app.init();
   });
 
@@ -1964,12 +2067,15 @@ describe('AppController (e2e)', () => {
       .expect({ data: 'Hello World!' });
   });
 });
+
 ```
 
-The thing is, in our setup file, we're already creating an app instance and initializing it. So we can just use this instance in our tests instead of creating a new instance of the `Test` object and getting the app instance from it. First export the server from the setup file:
+The thing is, in our setup file, we're already creating an app instance and initializing it. So we can just use this instance in our tests instead of creating a new instance of the `Test` object and getting the app instance from it.
+
+We can also move the `app.useGlobalPipes` into the set up file so we don't have to repeat it in every test file:
 
 ```ts:setup.ts
-import { HttpServer, INestApplication } from '@nestjs/common';
+import { HttpServer, INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppModule } from '../src/app.module';
 import { CacheService } from '../src/core/cache/cache.service';
@@ -1979,7 +2085,7 @@ let app: INestApplication;
 let server: HttpServer; // <--- Define the server instance variable
 let moduleFixture: TestingModule;
 let cache: CacheService;
-// let database: DatabaseService;
+let database: DatabaseService;
 
 beforeAll(async () => {
   moduleFixture = await Test.createTestingModule({
@@ -1987,14 +2093,17 @@ beforeAll(async () => {
   }).compile();
 
   app = moduleFixture.createNestApplication();
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true })); // <--- Add the global pipes
+
   cache = moduleFixture.get<CacheService>(CacheService);
-  // database = moduleFixture.get<DatabaseService>(DatabaseService);
+  database = moduleFixture.get<DatabaseService>(DatabaseService);
+
   await app.init();
   server = app.getHttpServer(); // <--- Get the server instance
 });
 
 afterEach(async () => {
-  // await database.resetDb();
+  await database.resetDb();
   await cache.reset();
 });
 
@@ -2046,7 +2155,12 @@ In the `test.yml` file, add the following:
 
 ```yml:.github/workflows/test.yml
 name: Tests
-on: workflow_dispatch
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches: ['*']
 
 jobs:
   unit-tests:
@@ -2057,15 +2171,57 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+  e2e-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/build
+      - name: Run tests
+        run: pnpm test:e2e
+        env:
+          POSTGRES_USER: username
+          POSTGRES_PASSWORD: password
 ```
 
-The `on: workflow_dispatch` is set temporarily so we can test the worklfow in Github. We'll update it shortly to run on every pull request and push to the `main` branch.
-
-You can see I've added a single job called `unit-tests` which has the following steps:
+You can see I've added a job called `unit-tests` which has the following steps:
 
 - The checkout action is used to fetch your repository's code, making it available for subsequent steps in the workflow.
 - The build action points to a file (that we'll add below) that installs the dependencies in the repository
 - And then finally, the command `pnpm test` is used to run the unit tests
+
+And also another job called `e2e-tests` which has the following steps:
+
+- The checkout action is used to fetch your repository's code, making it available for subsequent steps in the workflow.
+- The build action points to a file (that we'll add below) that installs the dependencies in the repository
+- And then finally, the command `pnpm test:e2e` is used to run the e2e tests and integration tests
+
+The `e2e-tests` job also has some environment variables defined. These are the credentials for the test database - if you look in the `docker-compose-test.yml` file, you'll see that the Postgres service uses these credentials.
+
+Let's now add the `action.yml` file in the `build` directory:
+
+```yml:.github/actions/build/action.yml
+name: 'Build'
+description: 'Sets up repository'
+runs:
+  using: 'composite'
+  steps:
+    - name: Check out source code
+      uses: actions/checkout@v3
+    - name: Install Node.js
+      uses: actions/setup-node@v3
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v2
+      with:
+        version: latest
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install
+
+```
+
+The purpose of this action is to install the dependencies in the repository using pnpm. It's used by both the `unit-tests` and `e2e-tests` jobs.
+
+If you push up your code to Github, you'll see that the CI pipeline will run the tests (and the tests should all pass if you've been following along!).
 
 ## Monorepo set up
 
@@ -2085,7 +2241,7 @@ The monorepo will have an `apps` directory which will contain all the apps (Nest
 mkdir -p apps/backend
 ```
 
-Now let's move all the files from the root of the project into the `backend` directory:
+Now let's move all the files from the root of the project into the `backend` directory, except for the `.github` directory which we want to keep in the root of the project:
 
 ```shell
 mv * .[^.]* ./apps/backend/
@@ -2093,10 +2249,17 @@ mv * .[^.]* ./apps/backend/
 
 It's possible you might get some errors when running that command - if you do I would suggest moving them manually in your IDE.
 
-The .git directory will now be in the /backend directory, so let's move that back to the root of the project:
+The .git and .github directory will now be in the /backend directory, so let's move that back to the root of the project:
 
 ```shell
 mv .git ../../
+mv .github ../../
+```
+
+It's important the `.git` file is in the root of your directory. To double check it is indeed there, make sure you're in the root of the project and run this command to check all the files (including hidden files) in the directory:
+
+```shell
+ls -a
 ```
 
 In the `package.json` file inside the `/backend` directory, update the name of the project to `backend`:
@@ -2157,9 +2320,9 @@ By default, NestJS (which we'll be setting up shortly) uses port 3000, which is 
 
 So to prevent a port conflict in your local servers, simply change this to 4000 for now to listen to this port instead.
 
-### NextJS 13 set up
+### NextJS 14 set up
 
-Let's add a NextJS 13 application called `web`. You can call this whatever you like!
+Let's add a NextJS 14 application called `web`. You can call this whatever you like!
 
 Head back into the `apps/` directory and run:
 
@@ -2379,9 +2542,9 @@ pnpm add @nestjs/config --filter=server
 
 This is much simpler - no more switching between directories to install new packages.
 
-## Build & start scripts
+## Build, start and test scripts
 
-Let's add some build and start scripts for both applications in the root package.json.
+Let's add some build, start and test scripts for both applications in the root package.json.
 
 This will be helpful later when we deploy each project.
 
@@ -2398,12 +2561,16 @@ In the root `package.json`, add the following scripts:
     "build:backend": "pnpm --filter backend build",
     "build:web": "pnpm --filter web build",
     "start:backend": "pnpm --filter backend start:prod",
-    "start:web": "pnpm --filter web start"
+    "start:web": "pnpm --filter web start",
+    "test": "pnpm run --parallel test",
+    "test:e2e": "pnpm run --parallel test:e2e"
   },
   "keywords": [],
   "author": "",
   "license": "ISC"
 }
 ```
+
+The test scripts ensure that the Github actions workflow will work with the new monorepo set up.
 
 Nice work! We now have a monorepo set up with 2 applications, a NestJS for the backend heavy lifting and a NextJS app for the frontend.

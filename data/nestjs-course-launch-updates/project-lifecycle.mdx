@@ -9,18 +9,22 @@ images: ['/static/images/nestjs-cheat-sheet/banner.png']
 isHiddenFromSearch: false
 ---
 
+https://dillinger.io/
+
 There are many NestJS tools at your disposal when building an application, specifically:
 
-- Decorators
 - Middleware
 - Guards
 - Interceptors
 - Pipes
 - Exception Filters
+- Decorators
 
-In this project, we're going to explore the purpose of these tools, how they fit together and the order of their execution in the NestJS lifecycle.
+In this project, we're going to explore the purpose of these tools, how they fit together and the order of their execution in the NestJS lifecycle by building a random emoji generator API.
 
 With this understanding, you'll have an excellent foundation for building NestJS applications for the projects ahead.
+
+## Project Setup
 
 Spin up a new project and we can get started:
 
@@ -28,7 +32,74 @@ Spin up a new project and we can get started:
 npx nest new nestjs-lifecycle --package-manager=pnpm --strict
 ```
 
-Let's first dive into the NestJS Lifecycle:
+Let's implement the simple logic to generate a random emoji. Update the existing `app.service.ts` file to the following:
+
+```ts
+import { Injectable } from '@nestjs/common'
+
+@Injectable()
+export class AppService {
+  getEmoji() {
+    const emojis = this.getEmojis()
+    const randomIndex = Math.floor(Math.random() * emojis.length)
+    return emojis[randomIndex]
+  }
+
+  getEmojis() {
+    return [`🚀`, `🔥`, `👍`, `🙌`, `👋`, `👏`, `🎉`, `🤩`, `🥳`, `🤘`, `🤙`, `👌`, `👊`, `👀`]
+  }
+}
+```
+
+Let's update the controller to use this service:
+
+```ts
+import { Controller, Get } from '@nestjs/common'
+import { AppService } from './app.service'
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getEmoji() {
+    return this.appService.getEmoji()
+  }
+}
+```
+
+The generated `app.controller.spec.ts` will need updating as we've replaced the default method with our own:
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing'
+import { AppController } from './app.controller'
+import { AppService } from './app.service'
+
+describe('AppController', () => {
+  let appController: AppController
+
+  beforeEach(async () => {
+    const app: TestingModule = await Test.createTestingModule({
+      controllers: [AppController],
+      providers: [AppService],
+    }).compile()
+
+    appController = app.get<AppController>(AppController)
+  })
+
+  describe('root', () => {
+    it('should return "Hello World!"', () => {
+      expect(appController.getEmoji()).toBe('Hello World!')
+    })
+  })
+})
+```
+
+We'll get into unit and e2e testing later on.
+
+Spin up your local server with `pnpm dev:start` and make a request to `http://localhost:3000` and you should see a random emoji returned in the response.
+
+Let's now dive into the NestJS Lifecycle.
 
 ## The NestJS Lifecycle
 
@@ -814,7 +885,7 @@ export class AppService {
 }
 ```
 
-Not to mention middleware, guards, pipes and filters are also classes - we'll get to more on these later!
+Not to mention middleware, guards, pipes and filters are also classes.
 
 TypeScript has a special feature called decorators that allows you to annotate and modify these classes and their members at design time. Decorators are used exclusively in classes and are denoted by the `@` symbol. NestJS uses them extensively throughout the framework!
 
