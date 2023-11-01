@@ -131,6 +131,41 @@ pnpm add webpack@^5.0.0
 
 With the package installed, we can now use the config module.
 
+By default, NestJS projects use port 3000 for the server. Let's change this to use an environment variable instead. This will be important for deployment as the hosting provider will inject the port number as an environment variable.
+
+In the `main.ts` file, change the port number to use the `PORT` environment variable:
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  await app.listen(port);
+}
+bootstrap();
+```
+
+We've added a check to see if the `PORT` environment variable is set. If it's not, we'll default to port 3000.
+
+Let's make one more tweak - let's update the server host to listen on `0.0.0.0`, a common practice for servers and common for most hosting providers. This will allow the server to listen on all network interfaces.
+
+Throughout the course, we'll be deploying to [Railway](https://railway.app) which requires the server to listen on `0.0.0.0`.
+
+```ts:main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = `0.0.0.0`;
+  await app.listen(port, host);
+}
+bootstrap();
+```
+
 We're going to add a `/core` directory and respective module which will be a place where we can add services that can be used across the entire application.
 
 You can think of the `/core` directory as a place to add services that are used across the entire application, such as a logger service, a config service, a cache service, etc.
@@ -407,7 +442,9 @@ import helmet from 'helmet';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
-  await app.listen(3000);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = `0.0.0.0`;
+  await app.listen(port, host);
 }
 bootstrap();
 
@@ -487,7 +524,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
   app.useGlobalPipes(new ValidationPipe()); // add global validation pipe
-  await app.listen(3000);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = `0.0.0.0`;
+  await app.listen(port, host);
 }
 bootstrap();
 
@@ -511,7 +550,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.use(helmet());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true })); // add global validation pipe
-  await app.listen(3000);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = `0.0.0.0`;
+  await app.listen(port, host);
 }
 bootstrap();
 
@@ -913,7 +954,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: new Logger() }); // <-- Edit this line
   app.use(helmet());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
-  await app.listen(3000);
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  const host = `0.0.0.0`;
+  await app.listen(port, host);
 }
 bootstrap();
 ```
@@ -2134,13 +2177,15 @@ describe('AppController (e2e)', () => {
 
 This is much cleaner and prevents a lot of duplicate module set up!
 
-## Setting up a CI pipeline
+## Setting up a CI/CD pipeline
 
-Now that we have our tests set up, let's set up a CI pipeline in Github Actions to run them.
+Now that we have our tests set up, let's set up a CI/CD pipeline in Github Actions to run them.
 
 Specifically, our CI pipeline will automatically run the unit tests, integration & e2e tests on every pull request and push to the `main` branch.
 
-In the root of your project, add a `.github` directory and the following sub directories and files:
+The CD pipeline will run any Prisma database migrations and deploy the app to [Railway](https://railway.app/) on every push to the `main` branch.
+
+Let's start with the CI pipeline. In the root of your project, add a `.github` directory and the following sub directories and files:
 
 ```
 .github
@@ -2222,6 +2267,61 @@ runs:
 The purpose of this action is to install the dependencies in the repository using pnpm. It's used by both the `unit-tests` and `e2e-tests` jobs.
 
 If you push up your code to Github, you'll see that the CI pipeline will run the tests (and the tests should all pass if you've been following along!).
+
+Let's now set up the CD pipeline where we will:
+
+- Run any Prisma database migrations
+- Deploy the app to Railway
+
+Importantly, we also only want to the CD pipeline to run when the tests pass.
+
+Add a new file called `deploy.yml` in the `.github/workflows` directory and add the following:
+
+```yml:.github/workflows/deploy.yml
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ['Tests']
+    types:
+      - completed
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: ./.github/actions/build
+      - name: Apply database migrations
+        run: pnpx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - name: Install Railway CLI
+        run: pnpm add --global @railway/cli
+      - name: Deploy to Railway
+        run: railway up
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+```
+
+Let's break down what's happening here:
+
+- The `on` property is used to specify when the workflow should run. In this case, it will run when the `Tests` workflow is completed.
+- The `if` property is used to specify when the job should run. In this case, it will run when the `Tests` workflow is completed and the tests have passed and the branch is `main`.
+- The `uses` property is used to fetch your repository's code, making it available for subsequent steps in the workflow.
+- The `build` action points to a file (that we already added earlier) that installs the dependencies in the repository
+- The command `pnpx prisma migrate deploy` is used to apply any database migrations
+- The command `pnpm add --global @railway/cli` is used to install the Railway CLI
+- The command `railway up` is used to deploy the app to Railway
+
+You'll notice that the `DATABASE_URL` & `RAILWAY_TOKEN` environment variable is used . This is the database URL for the production database and a token from Railway to link the Github repository to the Railway project and environment.
+
+We don't want to hardcode these in the workflow file, so we'll add them as secrets in the repository.
+
+We'll get these values from Railway shortly.
+
+It's worth noting that Railway does have a built-in way of deploying on every push to a branch, but I find it easier if the deployment is within Github Actions along with the tests and database migrations so you can easily see the entire CI/CD pipeline in one place (and therefore easily debug any issues that happen).
 
 ## Monorepo set up
 
@@ -2311,7 +2411,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: new Logger() })
   app.use(helmet())
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }))
-  await app.listen(process.env.PORT || 4000) // <--- Update the port
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 4000 // <--- Update the port to 4000
+  const host = `0.0.0.0`
+  await app.listen(port, host)
 }
 bootstrap()
 ```
