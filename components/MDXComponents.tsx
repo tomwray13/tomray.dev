@@ -8,6 +8,10 @@ import Pre from './Pre'
 import { BlogNewsletterForm } from './NewsletterForm'
 import Magnet from './Magnet'
 import YoutubeEmbed from './YoutubeEmbed'
+import CountdownTimer from './CountdownTimer'
+import ProjectCard from './ProjectCard'
+import FaqSection from './FaqSection'
+import TestimonialCard from './TestimonialCard'
 
 const Wrapper: React.ComponentType<{ layout: string }> = ({ layout, ...rest }) => {
   const Layout = require(`../layouts/${layout}`).default
@@ -25,6 +29,10 @@ export const MDXComponents: ComponentMap = {
   BlogNewsletterForm,
   Magnet,
   YoutubeEmbed,
+  CountdownTimer,
+  ProjectCard,
+  FaqSection,
+  TestimonialCard,
 }
 
 interface Props {
