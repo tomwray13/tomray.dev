@@ -75,3 +75,7 @@ input:-webkit-autofill:focus {
   width: 100%;
   position: absolute;
 }
+
+.buy-course-button {
+  @apply rounded bg-blue-600 py-3 px-5 text-lg font-bold text-white no-underline hover:bg-blue-700 !important;
+}

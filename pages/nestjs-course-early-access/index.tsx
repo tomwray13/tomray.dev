@@ -7,7 +7,7 @@ import TestimonialCard from '@/components/TestimonialCard'
 import Link from 'next/link'
 
 export default function NestJSCourseEarlyAccess() {
-  const targetDate = new Date(new Date().getFullYear(), 10, 23)
+  const targetDate = new Date(new Date().getFullYear(), 10, 30)
   const project1 = {
     label: 'Project 1',
     title: '🌈 Random Emoji Generator API',
@@ -128,6 +128,16 @@ export default function NestJSCourseEarlyAccess() {
                     real-world projects.
                   </p>
                   <p>Spots are limited to 50 developers for this early access launch!</p>
+                  <script src="https://cdn.podia.com/embeds.js" async></script>
+                  <a
+                    href="https://courses.tomray.dev/nestjs-course/buy"
+                    data-podia-embed="button"
+                    data-coupon="70-OFF-PRESALE"
+                    data-text="Buy Course"
+                    className="buy-course-button"
+                  >
+                    Buy Course
+                  </a>
                   <CountdownTimer targetDate={targetDate} />
                 </div>
               </div>
@@ -166,8 +176,8 @@ export default function NestJSCourseEarlyAccess() {
           </ul>
           <p>Here's what some fellow NestJS developers are saying about my content:</p>
 
-          <div className="relative -mx-8 mt-8 md:-mx-16 lg:-mx-32 xl:-mx-40">
-            <div className="grid grid-cols-1 gap-8 px-8 md:grid-cols-3 md:px-0">
+          <div className="relative mt-8 md:-mx-16 lg:-mx-32 xl:-mx-40">
+            <div className="grid grid-cols-1 gap-8 md:grid-cols-3 ">
               <TestimonialCard
                 text="Really appreciate your content on NestJS. They are one of the best, cover alot and are easy to follow!"
                 author="Martin"
@@ -210,8 +220,8 @@ export default function NestJSCourseEarlyAccess() {
             This course is project-based. See the list of projects and the respective name of the
             lessons in the course
           </p>
-          <div className="relative -mx-8 md:-mx-16 lg:-mx-32 xl:-mx-40">
-            <div className="grid grid-cols-1 gap-8 px-8 sm:grid-cols-2 md:grid-cols-3 md:px-0">
+          <div className="relative md:-mx-16 lg:-mx-32 xl:-mx-40">
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3">
               <ProjectCard
                 isReady={true}
                 label={project1.label}
@@ -266,10 +276,26 @@ export default function NestJSCourseEarlyAccess() {
             that's been taken by over 1000s of developers.
           </p>
           <FaqSection />
-          <div>
-            <h2 className="mb-2">🏃‍♀️ Ready to Begin Your NestJS Journey?</h2>
-            <p>Spots are limited to 50 people for this early access launch.</p>
-            <CountdownTimer targetDate={targetDate} />
+          <div className="flex w-full items-center justify-center">
+            <script src="https://cdn.podia.com/embeds.js" async></script>
+            <div className="flex max-w-md flex-col items-center justify-center text-center">
+              <h2 className="mb-2">🏃‍♀️ Ready to Begin Your NestJS Journey?</h2>
+              <p>
+                Join the exclusive cohort of developers mastering NestJS through hands-on,
+                real-world projects.
+              </p>
+              <p>Spots are limited to 50 developers for this early access launch!</p>
+              <a
+                href="https://courses.tomray.dev/nestjs-course/buy"
+                data-podia-embed="button"
+                data-coupon="70-OFF-PRESALE"
+                data-text="Buy Course"
+                className="buy-course-button"
+              >
+                Buy Course
+              </a>
+              <CountdownTimer targetDate={targetDate} />
+            </div>
           </div>
         </div>
       </div>
