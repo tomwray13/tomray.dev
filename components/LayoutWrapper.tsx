@@ -45,12 +45,12 @@ const LayoutWrapper = ({ children }: Props) => {
                 </Link>
               ))}
             </div>
-            <ThemeSwitch />
+            {/* <ThemeSwitch /> */}
             <MobileNav />
           </div>
         </header>
         <main className="mb-auto">{children}</main>
-        <Footer />
+        {/* <Footer /> */}
       </div>
     </SectionContainer>
   )

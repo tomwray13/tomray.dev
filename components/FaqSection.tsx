@@ -15,15 +15,15 @@ const faqs = [
   },
   {
     question: `What format is the course?`,
-    answer: `The course is currently delivered in a text-based format, akin to high-quality blog tutorials. This allows for easy follow-along at your own pace. We're actively working on adding video tutorials for each lesson to cater to different learning styles.`,
-  },
-  {
-    question: `When will the video tutorials be available?`,
-    answer: `We're dedicated to enhancing the course with video tutorials as soon as possible. We aim to roll these out in phases in the coming months. As an early adopter, you'll be the first to access these updates as they go live.`,
+    answer: `The course is video-based. Each video lesson also includes the respective content in text-based format, akin to high-quality blog tutorials. This allows for easy follow-along at your own pace.`,
   },
   {
     question: `How does the course ensure I'm learning practical skills?`,
     answer: `Each project in the course is designed around real-world applications, ensuring that you gain practical experience. The lessons are structured to take you from the basics to advanced topics, culminating in a comprehensive understanding that you can apply directly to your own projects.`,
+  },
+  {
+    question: `How much will the course cost?`,
+    answer: `The course price is $299 USD. If you join the waiting list, however, you'll be sent an exclusive discount code for launch.`,
   },
   // ... other FAQs
 ]

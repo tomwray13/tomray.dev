@@ -9,7 +9,7 @@ interface ProjectCardProps {
 
 const ProjectCard: React.FC<ProjectCardProps> = ({ title, lessons, label, isReady }) => {
   return (
-    <div className="w-100 rounded-lg border border-gray-200 bg-white shadow-md dark:border-gray-700 dark:bg-gray-800 sm:max-w-sm">
+    <div className="w-full rounded-lg border border-gray-200 bg-white shadow-md dark:border-gray-700 dark:bg-gray-800 sm:max-w-xs">
       <div className="p-5">
         <span className="mb-2 block text-center text-xs font-semibold uppercase opacity-40">
           {label}
@@ -19,7 +19,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ title, lessons, label, isRead
         </h5>
         {!isReady && (
           <div className="rounded-md bg-yellow-50 p-4 text-sm">
-            🔨 This project is currently under construction and will be available at a later date.
+            🔨 This project is currently under construction and will be available in February 2024.
           </div>
         )}
         <ul className="mt-2 mb-4">

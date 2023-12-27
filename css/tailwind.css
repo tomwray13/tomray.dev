@@ -77,5 +77,9 @@ input:-webkit-autofill:focus {
 }
 
 .buy-course-button {
-  @apply rounded bg-blue-600 py-3 px-5 text-lg font-bold text-white no-underline hover:bg-blue-700 !important;
+  @apply rounded bg-blue-600 py-2 px-4 text-sm font-bold text-white no-underline hover:bg-blue-700 !important;
+}
+
+.try-course-button {
+  @apply rounded bg-blue-100 py-2 px-4 text-sm font-bold text-white text-blue-600 no-underline hover:bg-blue-200 !important;
 }
