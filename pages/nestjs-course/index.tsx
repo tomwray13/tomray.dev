@@ -280,7 +280,7 @@ export default function NestJSCourse() {
           <div className="polka full-screen text-cente mt-16">
             <div className="mx-auto max-w-2xl px-4 sm:px-6 xl:px-0">
               <div className=" py-32">
-                <div className="flex flex-col items-center">
+                <div className="flex flex-col items-center text-center">
                   <h2 className="mb-2 mt-0">🏃‍♀️ Ready to Begin Your NestJS Journey?</h2>
                   <p className="text-center">
                     An immersive, hands-on course where you'll learn NestJS by building real-world

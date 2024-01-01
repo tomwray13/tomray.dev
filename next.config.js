@@ -64,6 +64,15 @@ module.exports = withBundleAnalyzer({
   eslint: {
     dirs: ['pages', 'components', 'lib', 'layouts', 'scripts'],
   },
+  async redirects() {
+    return [
+      {
+        source: '/nestjs-course-early-access',
+        destination: '/nestjs-course',
+        permanent: true,
+      },
+    ]
+  },
   async headers() {
     return [
       {
