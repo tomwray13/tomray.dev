@@ -128,13 +128,13 @@ export default function NestJSCourse() {
                   </p>
                   {/* <CountdownTimer targetDate={targetDate} />
                   <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
-                  <div className="mt-8 flex flex-col items-center sm:flex-row">
+                  <div className="mt-4 flex flex-col items-center sm:flex-row">
                     <a
                       href="https://courses.tomray.dev/nestjs-course?coupon=35-OFF-LAUNCH"
                       data-text="Buy Course"
                       className="buy-course-button"
                     >
-                      Buy now for <span className="line-through">$299</span> $194.35
+                      Buy now for $299
                     </a>
                     <a
                       href="https://courses.tomray.dev/free-sample-learn-nestjs-by-building-projects"
@@ -144,11 +144,6 @@ export default function NestJSCourse() {
                       Try course for free
                     </a>
                   </div>
-                  <p className="max-w-md text-xs text-gray-700">
-                    After the 8th January 2024, the price of this course will be increasing to $299.
-                    This course was just launched (on 2nd January 2024) so I'm offering a launch
-                    discount of 35% for a limited time!
-                  </p>
                 </div>
               </div>
             </div>
@@ -290,7 +285,7 @@ export default function NestJSCourse() {
                     An immersive, hands-on course where you'll learn NestJS by building real-world
                     projects from scratch, covering NestJS concepts and best practices.
                   </p>
-                  <div className="prose mb-2 flex w-full max-w-none flex-col items-center text-lg text-gray-900 dark:text-gray-700">
+                  <div className="prose flex w-full max-w-none flex-col items-center text-lg text-gray-900 dark:text-gray-700">
                     {/* <CountdownTimer targetDate={targetDate} />
                     <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
                     <div className=" flex flex-col sm:flex-row">
@@ -299,7 +294,7 @@ export default function NestJSCourse() {
                         data-text="Buy Course"
                         className="buy-course-button"
                       >
-                        Buy now for <span className="line-through">$299</span> $194.35
+                        Buy now for $299
                       </a>
                       <a
                         href="https://courses.tomray.dev/free-sample-learn-nestjs-by-building-projects"
@@ -309,11 +304,6 @@ export default function NestJSCourse() {
                         Try course for free
                       </a>
                     </div>
-                    <p className="max-w-md text-xs text-gray-700">
-                      After the 8th January 2024, the price of this course will be increasing to
-                      $299. This course was just launched (on 2nd January 2024) so I'm offering a
-                      launch discount of 35% for a limited time!
-                    </p>
                   </div>
                 </div>
               </div>

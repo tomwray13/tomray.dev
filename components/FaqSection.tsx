@@ -21,10 +21,7 @@ const faqs = [
     question: `How does the course ensure I'm learning practical skills?`,
     answer: `Each project in the course is designed around real-world applications, ensuring that you gain practical experience. The lessons are structured to take you from the basics to advanced topics, culminating in a comprehensive understanding that you can apply directly to your own projects.`,
   },
-  {
-    question: `How much will the course cost?`,
-    answer: `The course price is $299 USD. If you join the waiting list, however, you'll be sent an exclusive discount code for launch.`,
-  },
+
   // ... other FAQs
 ]
 
