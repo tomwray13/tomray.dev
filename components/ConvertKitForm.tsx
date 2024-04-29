@@ -5,6 +5,7 @@ export default function ConvertKitForm({
   formId = `4864903`,
   buttonText = `Get free course`,
   sideForm = true,
+  redirect = `nestjs-first-principles`,
 }) {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
@@ -12,7 +13,6 @@ export default function ConvertKitForm({
   const handleSubmit = async (event) => {
     setLoading(true)
     event.preventDefault()
-    const redirect = formId === `4864903` ? `nestjs-first-principles` : `nestjs-course`
     try {
       await fetch(`/api/convertkit`, {
         body: JSON.stringify({
