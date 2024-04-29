@@ -90,12 +90,12 @@ export default function NestJSCourse() {
   const project5 = {
     label: 'Project 5',
     title: '📬 Slack Clone: Monorepo with NestJS & NextJS',
-    isReady: false,
+    isReady: true,
     lessons: [
       'Using a monorepo set up with pnpm workspaces',
       'Setting up a WebSocket server and client in NestJS',
       'Building user authentication from scratch in both NestJS & NextJS',
-      'Add user signup & login (i.e. authentication, including Google OAuth)',
+      'Google authentication',
       'Set up access tokens and refresh tokens',
       '... and more!',
     ],
@@ -130,18 +130,11 @@ export default function NestJSCourse() {
                   <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
                   <div className="mt-4 flex flex-col items-center sm:flex-row">
                     <a
-                      href="https://courses.tomray.dev/nestjs-course?coupon=35-OFF-LAUNCH"
+                      href="https://courses.tomray.dev/nestjs-course"
                       data-text="Buy Course"
                       className="buy-course-button"
                     >
-                      Buy now for $299
-                    </a>
-                    <a
-                      href="https://courses.tomray.dev/free-sample-learn-nestjs-by-building-projects"
-                      data-text="Try course for free"
-                      className="try-course-button"
-                    >
-                      Try course for free
+                      Buy now for $79
                     </a>
                   </div>
                 </div>
@@ -150,6 +143,24 @@ export default function NestJSCourse() {
           </div>
         </div>
         <div className="prose mx-auto max-w-2xl pt-6 dark:prose-dark">
+          <h2 className="mb-2">🚀 Why take this course?</h2>
+          <ul>
+            <li>
+              If you're building a side project on the side or looking to level up your skills, this
+              course is for you.
+            </li>
+            <li>
+              Accelerate your NestJS learning with real-world projects. You won't sit there watching
+              hours of content without taking action - you'll be coding along and building real
+              things!
+            </li>
+            <li>
+              Gain hands-on experience you can apply directly to build your own software projects
+              and advance your career.
+            </li>
+            <li>Learn best practices and advanced techniques used by NestJS pros.</li>
+          </ul>
+
           <h2 className="mb-2">💡 What you'll learn:</h2>
           <p>Through various projects, you'll learn the following techniques and concepts:</p>
           <ul>
@@ -166,19 +177,6 @@ export default function NestJSCourse() {
             <li>All projects will include deployment</li>
           </ul>
 
-          <h2 className="mb-2">🚀 Why take this course?</h2>
-          <ul>
-            <li>
-              Accelerate your NestJS learning with real-world projects. You won't sit there watching
-              hours of content without taking action - you'll be coding along and building real
-              things!
-            </li>
-            <li>
-              Gain hands-on experience you can apply directly to build your own software projects
-              and advance your career.
-            </li>
-            <li>Learn best practices and advanced techniques used by NestJS pros.</li>
-          </ul>
           <p>Here's what some fellow NestJS developers are saying about my content:</p>
 
           <div className="relative mt-8 md:-mx-16 lg:-mx-32 xl:-mx-40">
@@ -290,18 +288,11 @@ export default function NestJSCourse() {
                     <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
                     <div className=" flex flex-col sm:flex-row">
                       <a
-                        href="https://courses.tomray.dev/nestjs-course?coupon=35-OFF-LAUNCH"
+                        href="https://courses.tomray.dev/nestjs-course"
                         data-text="Buy Course"
                         className="buy-course-button"
                       >
-                        Buy now for $299
-                      </a>
-                      <a
-                        href="https://courses.tomray.dev/free-sample-learn-nestjs-by-building-projects"
-                        data-text="Try course for free"
-                        className="try-course-button"
-                      >
-                        Try course for free
+                        Buy now for $79
                       </a>
                     </div>
                   </div>
