@@ -7,6 +7,7 @@ import FaqSection from '../../components/FaqSection'
 import type { InferGetServerSidePropsType } from 'next'
 import ProjectCards from '../../components/ProjectCards'
 import CourseLastUpdatedAt from '../../components/CourseLastUpdatedAt'
+import Pricing from '../../components/Pricing'
 
 export const getServerSideProps = async (context) => {
   const { subscriber_id } = context.query
@@ -58,7 +59,7 @@ export default function NestJSCourse({
         description="An immersive, hands-on course where you'll learn NestJS by building real-world projects from scratch, covering NestJS concepts and best practices."
         imageUrl="https://i.imgur.com/PIoMEsX.png"
       />
-      <div>
+      <div className="pb-16">
         <div className="polka full-screen mb-8 text-center">
           <div className="mx-auto max-w-2xl px-4 sm:px-6 xl:px-0">
             <div className="py-14">
@@ -72,19 +73,10 @@ export default function NestJSCourse({
                 </div>
                 <div className="prose mb-2 flex max-w-none flex-col items-center text-lg text-gray-900 dark:text-gray-700">
                   <p className="mb-0">
-                    An immersive, hands-on course where you'll learn NestJS by building real-world
-                    projects from scratch, covering NestJS concepts and best practices.
+                    An immersive, hands-on video course where you'll learn NestJS by building
+                    real-world projects from scratch, covering NestJS concepts and best practices.
                   </p>
                   {/* {deadline && <CountdownTimer targetDate={actualDeadline} />} */}
-                  <div className="mt-4 flex flex-col items-center sm:flex-row">
-                    <a
-                      href="https://courses.tomray.dev/nestjs-course"
-                      data-text="Buy Course"
-                      className="buy-course-button"
-                    >
-                      Buy now for $79
-                    </a>
-                  </div>
                 </div>
               </div>
             </div>
@@ -175,6 +167,14 @@ export default function NestJSCourse({
             </li>
           </ul>
 
+          <div className="relative md:-mx-16 lg:-mx-40 xl:-mx-80">
+            <div className="mx-auto max-w-2xl">
+              <h2 className="mb-2">💰 How much does the course cost?</h2>
+              <p>There are 2 pricing tiers available:</p>
+            </div>
+            <Pricing />
+          </div>
+
           {/* <h2 className="mb-2">💰 How much will the course cost?</h2>
           <p>
             The course price is $299 USD, but you will have access to a 70% off discount code (i.e.
@@ -191,32 +191,6 @@ export default function NestJSCourse({
             that's been taken by over 1000s of developers.
           </p>
           <FaqSection />
-          <div className="polka full-screen text-cente mt-16">
-            <div className="mx-auto max-w-2xl px-4 sm:px-6 xl:px-0">
-              <div className=" py-32">
-                <div className="flex flex-col items-center text-center">
-                  <h2 className="mb-2 mt-0">🏃‍♀️ Ready to Begin Your NestJS Journey?</h2>
-                  <p className="text-center">
-                    An immersive, hands-on course where you'll learn NestJS by building real-world
-                    projects from scratch, covering NestJS concepts and best practices.
-                  </p>
-                  <div className="prose flex w-full max-w-none flex-col items-center text-lg text-gray-900 dark:text-gray-700">
-                    {/* <CountdownTimer targetDate={targetDate} />
-                    <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
-                    <div className=" flex flex-col sm:flex-row">
-                      <a
-                        href="https://courses.tomray.dev/nestjs-course"
-                        data-text="Buy Course"
-                        className="buy-course-button"
-                      >
-                        Buy now for $79
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </>
