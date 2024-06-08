@@ -1,105 +1,56 @@
 /* eslint-disable @next/next/no-img-element */
-import ConvertKitForm from '@/components/ConvertKitForm'
 import { PageSEO } from '@/components/SEO'
 import Link from 'next/link'
 import TestimonialCard from '../../components/TestimonialCard'
-import ProjectCard from '../../components/ProjectCard'
 import CountdownTimer from '../../components/CountdownTimer'
 import FaqSection from '../../components/FaqSection'
+import type { InferGetServerSidePropsType } from 'next'
+import ProjectCards from '../../components/ProjectCards'
+import CourseLastUpdatedAt from '../../components/CourseLastUpdatedAt'
 
-export default function NestJSCourse() {
-  const targetDate = new Date(2024, 0, 3)
-  const currentDate = new Date()
-  currentDate.setMonth(currentDate.getMonth() - 1)
-  if (currentDate.getMonth() === 11 && new Date().getMonth() === 0) {
-    currentDate.setFullYear(currentDate.getFullYear() - 1)
+export const getServerSideProps = async (context) => {
+  const { subscriber_id } = context.query
+  if (!subscriber_id) {
+    return {
+      props: {
+        deadline: null,
+      },
+    }
   }
-  const monthName = currentDate.toLocaleString('default', { month: 'long' })
-  const year = currentDate.getFullYear()
-  const monthYear = `${monthName} ${year}`
+  try {
+    const protocol = context.req.headers['x-forwarded-proto'] || 'http'
+    const host = context.req.headers.host
+    const baseUrl = `${protocol}://${host}`
+    const response = await fetch(`${baseUrl}/api/convertkit?subscriber_id=${subscriber_id}`)
+    if (!response.ok) {
+      return {
+        props: {
+          deadline: null,
+        },
+      }
+    }
+    const { subscriber } = await response.json()
+    const createdAt = new Date(subscriber.created_at)
+    createdAt.setDate(createdAt.getDate() + 9)
+    const deadline = createdAt.toISOString()
+    return {
+      props: {
+        deadline,
+      },
+    }
+  } catch (error) {
+    return {
+      props: {
+        deadline: null,
+      },
+    }
+  }
+}
 
-  const project1 = {
-    label: 'Project 1',
-    title: '🌈 Random Emoji Generator API',
-    isReady: true,
-    lessons: [
-      'The NestJS Lifecycle',
-      'Middleware',
-      'Guards',
-      'Interceptors (before handlers)',
-      'Pipes',
-      'Route Handlers',
-      'Interceptors (after handlers)',
-      'Exception filters',
-      'Dependency injection',
-      'E2e testing',
-      'CI/CD set up with Github Actions & Railway',
-    ],
-  }
-  const project2 = {
-    label: 'Project 2',
-    title: '🪴 Ultimate NestJS Starter Repo',
-    isReady: true,
-    lessons: [
-      'Adding a Core module with ConfigModule',
-      'Using an interceptor to enforce a consisten HTTP response',
-      'Security considerations (Helmet & validation pipes)',
-      'Setting up a custom logger',
-      'Docker compose set up (postgres & redis)`',
-      'Interacting with the database (with Prisma)',
-      'Interacting with the cache (with Redis)',
-      'Unit, integration & e2e testing',
-      'Setting up the CI/CD pipeline with Github Actions',
-      'Deployment with Railway',
-    ],
-  }
-  const project3 = {
-    label: 'Project 3',
-    title: '🕸️ URL Shortener API',
-    isReady: true,
-    lessons: [
-      'Adding CRUD endpoints',
-      'Business logic: creating a shortened URL',
-      'Business logic: redirecting a shortened URL',
-      'Business logic: updating and deleting a shortened URL',
-      'Business logic: return a list of saved shortened URLs',
-      'API key authentication',
-      'Unit testing',
-      'Integration testing & e2e testing',
-      'Deployment with Railway',
-    ],
-  }
-  const project4 = {
-    label: 'Project 4',
-    title: '🏡 Real estate listings (using queues)',
-    isReady: true,
-    lessons: [
-      'Add logic for creating new real estate listings',
-      'Attach image files to HTTP request',
-      'Setting up the queue with Bull',
-      'Visualise the queue with Bull Board',
-      'Sending files to the queue for processing',
-      'Uploading files to Google Cloud Storage',
-      'Storing a reference to GCP image in the database',
-      'Unit testing',
-      'Integration testing',
-      'E2e testing',
-      'Deployment with Railway',
-    ],
-  }
-  const project5 = {
-    label: 'Project 5',
-    title: '📬 Slack Clone: Monorepo with NestJS & NextJS',
-    isReady: true,
-    lessons: [
-      'Using a monorepo set up with pnpm workspaces',
-      'Setting up a WebSocket server and client in NestJS',
-      'Building user authentication from scratch in both NestJS & NextJS',
-      'Google authentication',
-      'Set up access tokens and refresh tokens',
-      '... and more!',
-    ],
-  }
+export default function NestJSCourse({
+  deadline,
+}: InferGetServerSidePropsType<typeof getServerSideProps>) {
+  const actualDeadline = new Date(deadline)
   return (
     <>
       <PageSEO
@@ -114,9 +65,7 @@ export default function NestJSCourse() {
               <div className="flex flex-col items-center">
                 <img src="static/images/nestjs.png" alt="NestJS logo" className="mb-4 h-24" />
                 <div>
-                  <span className="opacity-64 rounded-full bg-white px-3 py-1 text-sm text-gray-900 shadow">
-                    ⚡️ Last updated in {monthYear}
-                  </span>
+                  <CourseLastUpdatedAt />
                   <h1 className="mt-4 mb-3 text-4xl dark:text-gray-900">
                     Learn NestJS by Building Real Projects
                   </h1>
@@ -126,8 +75,7 @@ export default function NestJSCourse() {
                     An immersive, hands-on course where you'll learn NestJS by building real-world
                     projects from scratch, covering NestJS concepts and best practices.
                   </p>
-                  {/* <CountdownTimer targetDate={targetDate} />
-                  <ConvertKitForm formId="5405777" buttonText="Join Waiting List" /> */}
+                  {/* {deadline && <CountdownTimer targetDate={actualDeadline} />} */}
                   <div className="mt-4 flex flex-col items-center sm:flex-row">
                     <a
                       href="https://courses.tomray.dev/nestjs-course"
@@ -208,38 +156,7 @@ export default function NestJSCourse() {
             lessons in the course:
           </p>
           <div className="relative md:-mx-16 lg:-mx-40 xl:-mx-80">
-            <div className="flex flex-wrap justify-center gap-8">
-              <ProjectCard
-                isReady={true}
-                label={project1.label}
-                title={project1.title}
-                lessons={project1.lessons}
-              />
-              <ProjectCard
-                isReady={true}
-                label={project2.label}
-                title={project2.title}
-                lessons={project2.lessons}
-              />
-              <ProjectCard
-                isReady={true}
-                label={project3.label}
-                title={project3.title}
-                lessons={project3.lessons}
-              />
-              <ProjectCard
-                isReady={true}
-                label={project4.label}
-                title={project4.title}
-                lessons={project4.lessons}
-              />
-              <ProjectCard
-                isReady={project5.isReady}
-                label={project5.label}
-                title={project5.title}
-                lessons={project5.lessons}
-              />
-            </div>
+            <ProjectCards />
           </div>
 
           <h2 className="mb-2">🤔 Who Should Take This Course?</h2>

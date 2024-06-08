@@ -41,7 +41,6 @@ const CountdownTimer: React.FC<{ targetDate: Date }> = ({ targetDate }) => {
 
   return (
     <div className="flex flex-col items-center justify-center rounded-lg pt-4">
-      <h2 className="mt-0 mb-4 text-base font-normal ">Course launches in:</h2>
       <div className="flex space-x-4">
         <div className="flex flex-col items-center">
           <span className="text-3xl font-bold text-blue-600">{timeLeft.days}</span>

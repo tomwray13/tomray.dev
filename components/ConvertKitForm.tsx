@@ -14,7 +14,7 @@ export default function ConvertKitForm({
     setLoading(true)
     event.preventDefault()
     try {
-      await fetch(`/api/convertkit`, {
+      await fetch(`/api/convertkit/subscribe`, {
         body: JSON.stringify({
           email,
           formId, // nestJs tips form
