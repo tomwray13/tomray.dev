@@ -1,13 +1,16 @@
 import React from 'react'
+import CountdownText from './CountdownText'
 
-export default function Pricing() {
+export default function Pricing({ deadline }: { deadline: null | Date }) {
   // add query param for automatic discount e.g. ?coupon=SUB933_20_OFF
   const tiers = [
     {
       name: 'Basic Plan',
       id: 'tier-basic',
-      href: 'https://courses.tomray.dev/05f27a04-52c0-4d32-9f57-e9e7ee21df9f/buy',
-      price: '$419',
+      href: deadline
+        ? 'https://courses.tomray.dev/05f27a04-52c0-4d32-9f57-e9e7ee21df9f/buy?coupon=WELCOME_60'
+        : 'https://courses.tomray.dev/05f27a04-52c0-4d32-9f57-e9e7ee21df9f/buy',
+      price: 419,
       description: 'Covers the fundamentals of NestJS',
       features: [
         'Access to the first 3 projects',
@@ -19,8 +22,10 @@ export default function Pricing() {
     {
       name: 'Ultimate Plan',
       id: 'tier-ultimate',
-      href: 'https://courses.tomray.dev/nestjs-course/buy',
-      price: '$499',
+      href: deadline
+        ? 'https://courses.tomray.dev/nestjs-course/buy?coupon=WELCOME_60'
+        : 'https://courses.tomray.dev/nestjs-course/buy',
+      price: 499,
       description: 'My premium plan that covers both fundamentals and advanced topics.',
       features: [
         'Everything in the Basic plan',
@@ -54,10 +59,28 @@ export default function Pricing() {
             <h3 id={tier.id} className="text-base font-semibold leading-7 text-blue-600">
               {tier.name}
             </h3>
-            <p className="mt-4 flex items-baseline gap-x-2">
-              <span className="text-5xl font-bold tracking-tight text-gray-900">{tier.price}</span>
+            <p className="mt-4 mb-2 flex items-baseline gap-x-2">
+              <span
+                className={`text-5xl font-bold tracking-tight ${
+                  deadline ? `text-gray-400 line-through` : `text-gray-900`
+                }`}
+              >
+                ${tier.price}
+              </span>
+              {deadline && (
+                <span className="text-5xl font-bold tracking-tight text-gray-900">
+                  ${(tier.price * 0.4).toFixed(2)}
+                </span>
+              )}
             </p>
-            <p className="mt-6 text-base leading-7 text-gray-600">{tier.description}</p>
+            {!deadline && (
+              <p className="mt-0 text-base leading-7 text-gray-600">{tier.description}</p>
+            )}
+            {deadline && (
+              <p className="mt-0 text-base leading-7 text-gray-600">
+                Exclusive 60% discount expiring in <CountdownText targetDate={deadline} />
+              </p>
+            )}
             <ul className="space-y-3 pl-0 text-sm leading-6 text-gray-600">
               {tier.features.map((feature) => (
                 <li key={feature} className="flex gap-x-3">
