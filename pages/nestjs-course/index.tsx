@@ -32,7 +32,7 @@ export const getServerSideProps = async (context) => {
     }
     const { subscriber } = await response.json()
     const createdAt = new Date(subscriber.created_at)
-    createdAt.setDate(createdAt.getDate() + 9)
+    createdAt.setDate(createdAt.getDate() + 7)
     const currentDateTime = new Date()
     const deadline = createdAt > currentDateTime ? createdAt.toISOString() : null
     return {
